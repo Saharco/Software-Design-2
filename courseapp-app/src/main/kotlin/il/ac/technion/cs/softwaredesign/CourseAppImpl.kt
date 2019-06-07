@@ -1,6 +1,8 @@
 package il.ac.technion.cs.softwaredesign
 
 import com.google.inject.Inject
+import il.ac.technion.cs.softwaredesign.managers.database.AuthenticationManager
+import il.ac.technion.cs.softwaredesign.managers.database.ChannelsManager
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 
 /**

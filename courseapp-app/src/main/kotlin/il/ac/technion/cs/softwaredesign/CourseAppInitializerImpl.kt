@@ -14,6 +14,13 @@ class CourseAppInitializerImpl @Inject constructor(private val dbMapper: Databas
         dbUsers.collection("metadata")
                 .document("users_data")
                 .set(Pair("users_count", "0"))
+                .set(Pair("creation_counter", "0"))
+                .write()
+
+        val dbChannels = dbMapper.getDatabase("channels")
+        dbChannels.collection("metadata")
+                .document("channels_data")
+                .set(Pair("creation_counter", "0"))
                 .write()
     }
 }

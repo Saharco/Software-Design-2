@@ -11,20 +11,23 @@ import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 
 class CourseAppModule : KotlinModule() {
 
+    /*
+     * Replace with these two when running the tests with mocks:
+     *
+     * --- TO THE STAFF: ---
+     *  we are pretty sure this is what you meant, but this means that at the time of submission:
+     *  our tests do not run anymore because we don't have the real SecureStorage implementation
+     * ---------------------
+     *
+     * private val factory = SecureStorageFactoryMock()
+     * private val dbFactory = CourseAppDatabaseFactory(factory)
+     *
+     */
+
     private val factory = SecureStorageFactoryMock() //TODO: change this when submitting
     private val dbFactory = CourseAppDatabaseFactory(factory)
 
     override fun configure() {
-        /*
-        This binding should be changed to the actual remote storage factory class in courseapp-test.
-        For this package's purposes: we will use a *mock* implementation (no persistent storage) in
-        order to properly test the CourseApp functionality
-         */
-//        bind<SecureStorageFactory>().to<SecureStorageFactoryMock>()
-
-        /*
-        These bindings inject our implementation for the provided CourseApp interfaces
-         */
         bind<CourseApp>().to<CourseAppImpl>()
         bind<CourseAppStatistics>().to<CourseAppStatisticsImpl>()
         bind<CourseAppInitializer>().to<CourseAppInitializerImpl>()

@@ -7,7 +7,6 @@ import il.ac.technion.cs.softwaredesign.CourseAppStatistics
 import il.ac.technion.cs.softwaredesign.storage.SecureStorageModule
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
-import java.util.*
 
 class CourseAppStatisticsTest {
     private val injector = Guice.createInjector(CourseAppModule(), SecureStorageModule())
@@ -73,42 +72,42 @@ class CourseAppStatisticsTest {
 
     @Test
     internal fun `top 10 channel list does secondary sorting by creation order`() {
-        val adminToken = app.login("admin", "admin")
-        val nonAdminToken = app.login("matan", "4321")
-        app.makeAdministrator(adminToken, "matan")
+        val adminToken = app.login("sahar", "sahar")
+        val nonAdminToken = app.login("yuval", "bobcorn")
+        app.makeAdministrator(adminToken, "yuval")
 
-        app.channelJoin(adminToken, "#test")
-        app.channelJoin(nonAdminToken, "#other")
+        app.channelJoin(adminToken, "#TakeCare")
+        app.channelJoin(nonAdminToken, "#TakeCare2")
 
-        assertEquals(listOf("#test", "#other"), statistics.top10ChannelsByUsers())
+        assertEquals(listOf("#TakeCare", "#TakeCare2"), statistics.top10ChannelsByUsers())
     }
 
     @Test
     internal fun `top 10 channel list counts only logged in users`() {
-        val adminToken = app.login("admin", "admin")
-        val nonAdminToken = app.login("matan", "4321")
-        app.makeAdministrator(adminToken, "matan")
+        val adminToken = app.login("sahar", "sahar")
+        val nonAdminToken = app.login("yuval", "bobcorn")
+        app.makeAdministrator(adminToken, "yuval")
 
-        app.channelJoin(adminToken, "#test")
-        app.channelJoin(nonAdminToken, "#other")
+        app.channelJoin(adminToken, "#TakeCare")
+        app.channelJoin(nonAdminToken, "#TakeCare2")
         app.logout(nonAdminToken)
 
-        assertEquals(listOf("#test", "#other"), statistics.top10ActiveChannelsByUsers())
+        assertEquals(listOf("#TakeCare", "#TakeCare2"), statistics.top10ActiveChannelsByUsers())
     }
 
     @Test
     internal fun `top 10 user list does secondary sorting by registration order`() {
-        val adminToken = app.login("admin", "admin")
-        val nonAdminToken = app.login("matan", "4321")
-        app.makeAdministrator(adminToken, "matan")
-        app.channelJoin(adminToken, "#test")
-        app.channelJoin(nonAdminToken, "#other")
+        val adminToken = app.login("sahar", "sahar")
+        val nonAdminToken = app.login("yuval", "bobcorn")
+        app.makeAdministrator(adminToken, "yuval")
+        app.channelJoin(adminToken, "#TakeCare")
+        app.channelJoin(nonAdminToken, "#TakeCare2")
 
-        assertEquals(listOf("admin", "matam"), statistics.top10UsersByChannels())
+        assertEquals(listOf("sahar", "yuval"), statistics.top10UsersByChannels())
     }
 
     /**
-     * Tests correctness of the following functions via load testing:
+     * Tests correctness of the following functions via extensive load testing:
      * - [CourseAppStatistics.top10ChannelsByUsers]
      * - [CourseAppStatistics.top10ActiveChannelsByUsers]
      * - [CourseAppStatistics.top10UsersByChannels]
@@ -118,16 +117,16 @@ class CourseAppStatisticsTest {
     internal fun `load test - top 10 queries return the expected results`() {
         // create a lot of users
         val users = app.performRandomUsersLogin()
-        val admin = users[0]
 
         // create a lot of channels
-        val channels = app.createRandomChannels(admin)
+        val channels = app.createRandomChannels(users)
 
         // make some users join some channels & check correctness
         app.joinRandomChannels(users, channels)
         verifyQueriesCorrectness(statistics, users, channels)
 
         // log out with some portion of users & check correctness
+
         val loggedOutUsersIndices = app.performRandomLogout(users, channels)
         verifyQueriesCorrectness(statistics, users, channels)
 
@@ -138,39 +137,5 @@ class CourseAppStatisticsTest {
         // leave channels with some portion of users & check correctness
         app.leaveRandomChannels(users, channels)
         verifyQueriesCorrectness(statistics, users, channels)
-    }
-
-    @Test
-    internal fun `The database calculates top10ChannelsByUsers correctly`() {
-        val tokenList = LinkedList<String>()
-        val userList = LinkedList<String>()
-        val channelList = LinkedList<String>()
-        val userCount = 50
-        val channelCount = 11
-        val token = app.login("admin", "admin")
-        tokenList.add(token)
-        userList.add("admin")
-        for (i in 1 until userCount + 1) {
-            userList.add("user$i")
-            tokenList.add(app.login("user$i", "user$i"))
-        }
-
-        for (i in 1 until channelCount + 1) {
-            channelList.add("#channel_$i")
-            app.channelJoin(token, "#channel_$i")
-        }
-        println("-------------------------------")
-        for (i in 1 until userCount + 1) {
-            for (j in 1 until (2..(channelCount + 1)).shuffled().first()) {
-                val random = (0 until channelCount).shuffled().first()
-                app.channelJoin(tokenList[i], channelList[random])
-            }
-        }
-        val memberCount = LinkedList<Pair<String, Long>>()
-        for (i in 1 until channelCount + 1) {
-            memberCount.add(Pair(channelList[i - 1], app.numberOfTotalUsersInChannel(token, channelList[i - 1])))
-        }
-        val list = memberCount.asSequence().sortedByDescending { it.second }.map { it.first }.toList().reversed().takeLast(10).reversed()
-        assertEquals(list, statistics.top10ChannelsByUsers())
     }
 }

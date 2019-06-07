@@ -111,18 +111,6 @@ class CourseAppTest {
         }
     }
 
-    private fun populateWithRandomStrings(list: ArrayList<String>, amount: Int = 100,
-                                          maxSize: Int = 30, charPool: List<Char>? = null) {
-        val pool = charPool ?: ('a'..'z') + ('A'..'Z') + ('0'..'9') + '/'
-        for (i in 0 until amount) {
-            val randomString = (1..maxSize)
-                    .map { kotlin.random.Random.nextInt(0, pool.size) }
-                    .map(pool::get)
-                    .joinToString("")
-            list.add(randomString)
-        }
-    }
-
     @Test
     internal fun `first logged in user is an administrator by default`() {
         val token = app.login("sahar", "a very strong password")

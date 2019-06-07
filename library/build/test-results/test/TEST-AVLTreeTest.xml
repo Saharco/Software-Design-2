@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="AVLTreeTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2019-05-29T03:17:22" hostname="Yuval-N" time="0.395">
+  <properties/>
+  <testcase name="delete TONS of elements$library()" classname="AVLTreeTest" time="0.395"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

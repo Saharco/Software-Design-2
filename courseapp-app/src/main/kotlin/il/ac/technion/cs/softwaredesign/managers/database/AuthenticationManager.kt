@@ -1,5 +1,6 @@
 package il.ac.technion.cs.softwaredesign.managers.database
 
+import il.ac.technion.cs.softwaredesign.CourseAppImpl
 import il.ac.technion.cs.softwaredesign.database.Database
 import il.ac.technion.cs.softwaredesign.database.DocumentReference
 import il.ac.technion.cs.softwaredesign.exceptions.InvalidTokenException
@@ -9,12 +10,13 @@ import il.ac.technion.cs.softwaredesign.exceptions.UserNotAuthorizedException
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 import updateTree
 import java.time.LocalDateTime
+import java.util.concurrent.CompletableFuture
 
 /**
  * Manages users in a database: this class wraps authentication functionality.
  * Provides common database operations regarding users and login session tokens
  *
- * @see CourseApp
+ * @see CourseAppImpl
  * @see Database
  *
  * @param dbMapper: mapper object that contains the app's open databases
@@ -31,80 +33,112 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
             .collection("all_channels")
     private val metadataRoot = dbMapper.getDatabase("users")
             .collection("metadata")
+    private val usersByChannelsStorage = dbMapper.getStorage("users_by_channels")
+    private val channelsByActiveUsersStorage = dbMapper.getStorage("channels_by_active_users")
 
-    fun performLogin(username: String, password: String): String {
+    fun performLogin(username: String, password: String): CompletableFuture<String> {
         val userDocument = usersRoot.document(username)
-        val storedPassword = userDocument.read("password")
+        return userDocument.read("password").thenApply { storedPassword ->
 
-        if (storedPassword != null && storedPassword != password)
-            throw NoSuchEntityException("incorrect password")
-        if (userDocument.read("token") != null)
-            throw UserAlreadyLoggedInException()
+            if (storedPassword != null && storedPassword != password)
+                throw NoSuchEntityException("incorrect password")
+            userDocument.read("token").thenApply { storedToken ->
+                if (storedToken != null)
+                    throw UserAlreadyLoggedInException()
+            }
 
-        val token = generateToken(username)
-        userDocument.set(Pair("token", token))
+            storedPassword
+        }.thenApply { storedPassword ->
 
-        updateLoginData(userDocument, storedPassword, password, username)
-
-        tokensRoot.document(token)
-                .set(Pair("username", username))
-                .write()
-
-        return token
+            val token = generateToken(username)
+            userDocument.set(Pair("token", token))
+            Pair(storedPassword, token)
+        }.thenCompose { pair ->
+            updateLoginData(userDocument, pair.first, password, username)
+                    .thenApply { pair.second }
+        }.thenCompose { token ->
+            tokensRoot.document(token)
+                    .set(Pair("username", username))
+                    .write()
+                    .thenApply { token }
+        }.thenApply { token ->
+            token
+        }
     }
 
-    fun performLogout(token: String) {
+    fun performLogout(token: String): CompletableFuture<Unit> {
         val tokenDocument = tokensRoot.document(token)
-        val username = tokenDocument.read("username")
-                ?: throw InvalidTokenException("token does not match any active user")
-
-        tokenDocument.delete()
-
-        val userDocument = usersRoot.document(username)
-        updateLogoutData(userDocument)
+        return tokenDocument.read("username")
+                .thenApply { username ->
+                    username ?: throw InvalidTokenException("token does not match any active user")
+                }.thenCompose { username ->
+                    tokenDocument.delete()
+                            .thenApply { username }
+                }.thenCompose { username ->
+                    updateLogoutData(usersRoot.document(username))
+                }
     }
 
-    fun isUserLoggedIn(token: String, username: String): Boolean? {
-        if (!tokensRoot.document(token)
-                        .exists())
-            throw InvalidTokenException("token does not match any active user")
-
-        if (!usersRoot.document(username)
-                        .exists())
-            return null
-
-        val otherToken = usersRoot.document(username)
-                .read("token")
-        return otherToken != null
+    fun isUserLoggedIn(token: String, username: String): CompletableFuture<Boolean?> {
+        return tokensRoot.document(token)
+                .exists()
+                .thenApply { exists ->
+                    if (!exists)
+                        throw InvalidTokenException("token does not match any active user")
+                }.thenCompose {
+                    usersRoot.document(username)
+                            .exists()
+                }.thenCompose { exists ->
+                    if (!exists)
+                        CompletableFuture.completedFuture(null as Boolean?)
+                    else {
+                        usersRoot.document(username)
+                                .read("token")
+                                .thenApply { otherToken ->
+                                    otherToken != null
+                                }
+                    }
+                }
     }
 
 
-    fun makeAdministrator(token: String, username: String) {
-        val tokenUsername = tokensRoot.document(token)
+    fun makeAdministrator(token: String, username: String): CompletableFuture<Unit> {
+        return tokensRoot.document(token)
                 .read("username")
-                ?: throw InvalidTokenException("token does not match any active user")
-
-        usersRoot.document(tokenUsername)
-
-                .read("isAdmin") ?: throw UserNotAuthorizedException("no admin permission")
-
-        if (!usersRoot.document(username)
-                        .exists())
-            throw NoSuchEntityException("given user does not exist")
-
-        usersRoot.document(username)
-                .set(Pair("isAdmin", "true"))
-                .update()
+                .thenApply { tokenUsername ->
+                    tokenUsername ?: throw InvalidTokenException("token does not match any active user")
+                }.thenCompose { tokenUsername ->
+                    usersRoot.document(tokenUsername)
+                            .read("isAdmin")
+                }.thenApply { isAdmin ->
+                    isAdmin ?: throw UserNotAuthorizedException("no admin permission")
+                }.thenCompose {
+                    usersRoot.document(username)
+                            .exists()
+                }.thenApply { exists ->
+                    if (!exists)
+                        throw NoSuchEntityException("given user does not exist")
+                }.thenCompose {
+                    usersRoot.document(username)
+                            .set(Pair("isAdmin", "true"))
+                            .update()
+                }
     }
 
-    fun getTotalUsers(): Long {
+    fun getTotalUsers(): CompletableFuture<Long> {
         return metadataRoot.document("users_data")
-                .read("users_count")?.toLong() ?: 0
+                .read("users_count")
+                .thenApply { usersCount ->
+                    usersCount?.toLong() ?: 0
+                }
     }
 
-    fun getLoggedInUsers(): Long {
+    fun getLoggedInUsers(): CompletableFuture<Long> {
         return metadataRoot.document("users_data")
-                .read("online_users_count")?.toLong() ?: 0
+                .read("online_users_count")
+                .thenApply { onlineUsersCount ->
+                    onlineUsersCount?.toLong() ?: 0
+                }
     }
 
     /**
@@ -129,52 +163,86 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
      *
      */
     private fun updateLoginData(userDocument: DocumentReference, storedPassword: String?,
-                                enteredPassword: String, username: String) {
+                                enteredPassword: String, username: String): CompletableFuture<Unit> {
+        val future: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
         if (storedPassword == null) {
-            val creationCounter = metadataRoot.document("users_data")
-                    .read("creation_counter")?.toInt()?.plus(1) ?: 1
-            metadataRoot.document("users_data")
-                    .set(Pair("creation_counter", creationCounter.toString()))
-                    .update()
-
-            userDocument.set(Pair("password", enteredPassword))
-                    .set(Pair("creation_time", LocalDateTime.now().toString()))
-                    .set(Pair("creation_counter", creationCounter.toString()))
-
-            val usersCountDocument = metadataRoot.document("users_data")
-            val usersCount = usersCountDocument.read("users_count")?.toInt()?.plus(1)
-                    ?: 1
-
-            if (usersCount == 1) userDocument.set(Pair("isAdmin", "true"))
-
-            usersCountDocument.set(Pair("users_count", usersCount.toString()))
-                    .update()
-
-            updateTree(dbMapper.getStorage("users_by_channels"), username, 0, 0, creationCounter)
+            future.thenApply {
+                metadataRoot.document("users_data")
+                        .read("creation_counter").thenApply { oldCounter ->
+                            oldCounter?.toInt()?.plus(1) ?: 1
+                        }.thenApply { newCounter ->
+                            metadataRoot.document("users_data")
+                                    .set(Pair("creation_counter", newCounter.toString()))
+                                    .update()
+                                    .thenApply {
+                                        userDocument.set(Pair("password", enteredPassword))
+                                                .set(Pair("creation_time", LocalDateTime.now().toString()))
+                                                .set(Pair("creation_counter", newCounter.toString()))
+                                        val usersCountDocument = metadataRoot.document("users_data")
+                                        usersCountDocument.read("users_count").thenApply { oldUsersCount ->
+                                            oldUsersCount?.toInt()?.plus(1) ?: 1
+                                        }.thenApply { newUsersCount ->
+                                            if (newUsersCount == 1)
+                                                userDocument.set(Pair("isAdmin", "true"))
+                                            usersCountDocument.set(Pair("users_count", newUsersCount.toString()))
+                                                    .update()
+                                                    .thenApply {
+                                                        updateTree(usersByChannelsStorage,
+                                                                username, 0, 0, newCounter)
+                                                    }
+                                        }
+                                    }
+                        }
+            }
         }
         val usersCountDocument = metadataRoot.document("users_data")
-        val onlineUsersCount = usersCountDocument.read("online_users_count")?.toInt()?.plus(1)
-                ?: 1
-        usersCountDocument.set(Pair("online_users_count", onlineUsersCount.toString()))
-                .update()
 
-        val channels = userDocument.readList("channels")?.toMutableList()
-                ?: mutableListOf()
-        for (channel in channels) {
-            val channelNewOnlineUsersCount = channelsRoot.document(channel)
-                    .read("online_users_count")?.toInt()?.plus(1) ?: 1
-            channelsRoot.document(channel)
-                    .set(Pair("online_users_count", channelNewOnlineUsersCount.toString()))
+        return future.thenCompose {
+            usersCountDocument.read("online_users_count")
+        }.thenApply { oldOnlineUsersCount ->
+            oldOnlineUsersCount?.toInt()?.plus(1) ?: 1
+        }.thenCompose { newOnlineUsersCount ->
+            usersCountDocument.set(Pair("online_users_count", newOnlineUsersCount.toString()))
                     .update()
-
-            val channelCreationCounter = channelsRoot.document(channel).read("creation_counter")!!.toInt()
-
-            updateTree(dbMapper.getStorage("channels_by_active_users"), channel,
-                    channelNewOnlineUsersCount, channelNewOnlineUsersCount - 1,
-                    channelCreationCounter)
+        }.thenCompose {
+            userDocument.readList("channels")
+        }.thenApply { channels ->
+            channels ?: listOf()
+        }.thenCompose { channels ->
+            updateUserChannels(channels, updateCount = 1)
+        }.thenCompose {
+            userDocument.update()
         }
+    }
 
-        userDocument.update()
+    private fun updateUserChannels(channels: List<String>, updateCount: Int, index: Int = 0):
+            CompletableFuture<Unit> {
+        if (channels.size <= index)
+            return CompletableFuture.completedFuture(Unit)
+        val channel = channels[index]
+
+        return channelsRoot.document(channel)
+                .read("online_users_count")
+                .thenApply { oldOnlineUsersCount ->
+                    oldOnlineUsersCount?.toInt()?.plus(updateCount) ?: 0
+                }.thenCompose { newOnlineUsersCount ->
+                    channelsRoot.document(channel)
+                            .set(Pair("online_users_count", newOnlineUsersCount.toString()))
+                            .update()
+                            .thenApply { newOnlineUsersCount }
+                }.thenCompose { newOnlineUsersCount ->
+                    channelsRoot.document(channel).read("creation_counter")
+                            .thenApply { creationCounter ->
+                                Pair(newOnlineUsersCount, creationCounter)
+                            }
+                }.thenApply { pair ->
+                    Pair(pair.first, pair.second!!.toInt())
+                }.thenApply { pair ->
+                    updateTree(channelsByActiveUsersStorage, channel,
+                            pair.first, pair.first - updateCount, pair.second)
+                }.thenCompose {
+                    updateUserChannels(channels, updateCount, index + 1)
+                }
     }
 
     /**
@@ -184,29 +252,22 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
      *  - number of logged in users in each channel that the user is a member of,
      *  - invalidating user token
      */
-    private fun updateLogoutData(userDocument: DocumentReference) {
+    private fun updateLogoutData(userDocument: DocumentReference): CompletableFuture<Unit> {
         val usersCountDocument = metadataRoot.document("users_data")
-        val onlineUsersCount = usersCountDocument.read("online_users_count")?.toInt()?.minus(1)
-                ?: 0
-        usersCountDocument.set(Pair("online_users_count", onlineUsersCount.toString()))
-                .update()
-
-        val channels = userDocument.readList("channels")?.toMutableList()
-                ?: mutableListOf()
-        for (channel in channels) {
-            val channelNewOnlineUsersCount = channelsRoot.document(channel)
-                    .read("online_users_count")?.toInt()?.minus(1) ?: 0
-            channelsRoot.document(channel)
-                    .set(Pair("online_users_count", channelNewOnlineUsersCount.toString()))
-                    .update()
-
-            val channelCreationCounter = channelsRoot.document(channel).read("creation_counter")!!.toInt()
-
-            updateTree(dbMapper.getStorage("channels_by_active_users"), channel,
-                    channelNewOnlineUsersCount, channelNewOnlineUsersCount + 1,
-                    channelCreationCounter)
-        }
-
-        userDocument.delete(listOf("token"))
+        return usersCountDocument.read("online_users_count")
+                .thenApply { oldOnlineUsers ->
+                    oldOnlineUsers?.toInt()?.minus(1) ?: 0
+                }.thenCompose { newOnlineUsers ->
+                    usersCountDocument.set(Pair("online_users_count", newOnlineUsers.toString()))
+                            .update()
+                }.thenCompose {
+                    userDocument.readList("channels")
+                }.thenApply { channels ->
+                    channels ?: listOf()
+                }.thenCompose { channels ->
+                    updateUserChannels(channels, updateCount = -1)
+                }.thenCompose {
+                    userDocument.delete(listOf("token"))
+                }
     }
 }

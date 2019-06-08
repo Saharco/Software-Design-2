@@ -1,5 +1,6 @@
 package il.ac.technion.cs.softwaredesign.managers.database
 
+import il.ac.technion.cs.softwaredesign.CourseAppImpl
 import il.ac.technion.cs.softwaredesign.database.Database
 import il.ac.technion.cs.softwaredesign.exceptions.InvalidTokenException
 import il.ac.technion.cs.softwaredesign.exceptions.NameFormatException
@@ -14,7 +15,7 @@ import java.time.LocalDateTime
 /**
  * Manages channels in the app: this class wraps channels functionality
  *
- * @see CourseApp
+ * @see CourseAppImpl
  * @see Database
  *
  * @param dbMapper: mapper object that contains the app's open databases
@@ -40,13 +41,13 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         if (!validChannelName(channel)) throw NameFormatException("invalid channel name: $channel")
 
         val userChannels = usersRoot.document(tokenUsername)
-                .readList("channels")?.toMutableList() ?: mutableListOf()
+                .readList("channels").join()?.toMutableList() ?: mutableListOf()
 
         // finish if user attempts to join a channel they're already members of
         if (userChannels.contains(channel)) return
 
         var newChannelFlag = false
-        if (!channelsRoot.document(channel).exists()) {
+        if (!channelsRoot.document(channel).exists().join()) {
             if (!isAdmin(tokenUsername))
                 throw UserNotAuthorizedException("only an administrator may create a new channel")
 
@@ -65,22 +66,22 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         var onlineUsersCount = 1
         if (!newChannelFlag) {
             usersCount = channelsRoot.document(channel)
-                    .read("users_count")?.toInt()?.plus(1) ?: 1
+                    .read("users_count").join()?.toInt()?.plus(1) ?: 1
             channelsRoot.document(channel)
                     .set(Pair("users_count", usersCount.toString()))
                     .update()
 
             onlineUsersCount = channelsRoot.document(channel)
-                    .read("online_users_count")?.toInt()?.plus(1) ?: 1
+                    .read("online_users_count").join()?.toInt()?.plus(1) ?: 1
             channelsRoot.document(channel)
                     .set(Pair("online_users_count", onlineUsersCount.toString()))
                     .update()
         }
 
         val channelCreationCounter = channelsRoot.document(channel)
-                .read("creation_counter")?.toInt() ?: 0
+                .read("creation_counter").join()?.toInt() ?: 0
         val userCreationCounter = usersRoot.document(tokenUsername)
-                .read("creation_counter")?.toInt() ?: 0
+                .read("creation_counter").join()?.toInt() ?: 0
         val usersChannelsCount = userChannels.size
 
         updateTree(channelsByUsers, channel, usersCount, usersCount - 1,
@@ -119,7 +120,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
             throw UserNotAuthorizedException("user is not a member in the channel")
 
         val otherUserExists = usersRoot.document(username)
-                .exists()
+                .exists().join()
 
         if (!otherUserExists || !isMemberOfChannel(username, channel))
             throw NoSuchEntityException("given username is not a member in the channel")
@@ -127,7 +128,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         // all requirements are filled: appoint user to channel operator
 
         val operators = channelsRoot.document(channel)
-                .readList("operators")?.toMutableList() ?: mutableListOf()
+                .readList("operators").join()?.toMutableList() ?: mutableListOf()
         operators.add(username)
 
         channelsRoot.document(channel)
@@ -152,7 +153,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         verifyValidAndPrivilegedToQuery(token, channel)
 
         if (!usersRoot.document(username)
-                        .exists())
+                        .exists().join())
             return null
         return isMemberOfChannel(username, channel)
     }
@@ -161,7 +162,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         verifyValidAndPrivilegedToQuery(token, channel)
 
         return channelsRoot.document(channel)
-                .read("online_users_count")?.toLong() ?: 0
+                .read("online_users_count").join()?.toLong() ?: 0
 
     }
 
@@ -169,7 +170,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         verifyValidAndPrivilegedToQuery(token, channel)
 
         return channelsRoot.document(channel)
-                .read("users_count")!!.toLong()
+                .read("users_count").join()!!.toLong()
     }
 
     fun topKChannelsByUsers(k: Int = 10): List<String> {
@@ -190,7 +191,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      * Creates a new channel with a given operator for the channel
      */
     private fun createNewChannel(channel: String, operatorUsername: String) {
-        val creationCounter = metadataDocument.read("creation_counter")?.toInt()?.plus(1) ?: 1
+        val creationCounter = metadataDocument.read("creation_counter").join()?.toInt()?.plus(1) ?: 1
         metadataDocument.set(Pair("creation_counter", creationCounter.toString()))
                 .update()
 
@@ -222,7 +223,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      */
     private fun expelChannelMember(username: String, channel: String) {
         val userChannels = usersRoot.document(username)
-                .readList("channels")?.toMutableList() ?: mutableListOf()
+                .readList("channels").join()?.toMutableList() ?: mutableListOf()
         userChannels.remove(channel)
         usersRoot.document(username)
                 .set("channels", userChannels)
@@ -230,7 +231,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 .update()
 
         val operators = channelsRoot.document(channel)
-                .readList("operators")?.toMutableList() ?: mutableListOf()
+                .readList("operators").join()?.toMutableList() ?: mutableListOf()
 
         if (operators.contains(username)) {
             operators.remove(username)
@@ -240,7 +241,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         }
 
         val usersCount = channelsRoot.document(channel)
-                .read("users_count")!!.toInt() - 1
+                .read("users_count").join()!!.toInt() - 1
         var onlineUsersCount = 0
         var channelDeleted = false
         if (usersCount == 0) {
@@ -253,10 +254,10 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         var isUserLoggedIn = false
         if (!channelDeleted) {
             if (usersRoot.document(username)
-                            .read("token") != null) {
+                            .read("token").join() != null) {
                 isUserLoggedIn = true
                 onlineUsersCount = channelsRoot.document(channel)
-                        .read("online_users_count")?.toInt()?.minus(1) ?: 0
+                        .read("online_users_count").join()?.toInt()?.minus(1) ?: 0
 
                 channelsRoot.document(channel)
                         .set(Pair("online_users_count", onlineUsersCount.toString()))
@@ -269,9 +270,9 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
         }
 
         val channelCreationCounter = channelsRoot.document(channel)
-                .read("creation_counter")?.toInt() ?: 0
+                .read("creation_counter").join()?.toInt() ?: 0
         val userCreationCounter = usersRoot.document(username)
-                .read("creation_counter")?.toInt() ?: 0
+                .read("creation_counter").join()?.toInt() ?: 0
         val usersChannelsCount = userChannels.size
 
         val prevOnlineUsersCount = if (isUserLoggedIn) onlineUsersCount + 1 else onlineUsersCount
@@ -288,7 +289,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      */
     private fun isMemberOfChannel(username: String, channel: String): Boolean {
         val channelsList = usersRoot.document(username)
-                .readList("channels")
+                .readList("channels").join()
         return channelsList != null && channelsList.contains(channel)
     }
 
@@ -299,7 +300,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      */
     private fun verifyChannelExists(channel: String) {
         if (!channelsRoot.document(channel)
-                        .exists())
+                        .exists().join())
             throw NoSuchEntityException("given channel does not exist")
     }
 
@@ -310,7 +311,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      */
     private fun tokenToUser(token: String): String {
         return tokensRoot.document(token)
-                .read("username")
+                .read("username").join()
                 ?: throw InvalidTokenException("token does not match any active user")
     }
 
@@ -319,7 +320,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      */
     private fun isAdmin(username: String): Boolean {
         return usersRoot.document(username)
-                .read("isAdmin")
+                .read("isAdmin").join()
                 .equals("true")
     }
 
@@ -328,7 +329,7 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      */
     private fun isOperator(username: String, channel: String): Boolean {
         val channelModerators = channelsRoot.document(channel)
-                .readList("operators") ?: return false
+                .readList("operators").join() ?: return false
         return channelModerators.contains(username)
     }
 

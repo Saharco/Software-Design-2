@@ -8,6 +8,7 @@ import il.ac.technion.cs.softwaredesign.database.Database
 import il.ac.technion.cs.softwaredesign.mocks.SecureStorageFactoryMock
 import il.ac.technion.cs.softwaredesign.storage.SecureStorage
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
+import java.util.concurrent.CompletableFuture
 
 class CourseAppModule : KotlinModule() {
 
@@ -36,8 +37,8 @@ class CourseAppModule : KotlinModule() {
     @Provides
     @Singleton
     fun courseAppProvider(): DatabaseMapper {
-        val dbMap = mutableMapOf<String, Database>()
-        val storageMap = mutableMapOf<String, SecureStorage>()
+        val dbMap = mutableMapOf<String, CompletableFuture<Database>>()
+        val storageMap = mutableMapOf<String, CompletableFuture<SecureStorage>>()
 
         mapNewDatabase(dbMap, "users")
         mapNewDatabase(dbMap, "channels")
@@ -48,11 +49,11 @@ class CourseAppModule : KotlinModule() {
         return DatabaseMapper(dbMap, storageMap)
     }
 
-    private fun mapNewDatabase(dbMap: MutableMap<String, Database>, dbName: String) {
+    private fun mapNewDatabase(dbMap: MutableMap<String, CompletableFuture<Database>>, dbName: String) {
         dbMap[dbName] = dbFactory.open(dbName)
     }
 
-    private fun mapNewStorage(storageMap: MutableMap<String, SecureStorage>, storageName: String) {
+    private fun mapNewStorage(storageMap: MutableMap<String, CompletableFuture<SecureStorage>>, storageName: String) {
         storageMap[storageName] = factory.open(storageName.toByteArray())
     }
 }

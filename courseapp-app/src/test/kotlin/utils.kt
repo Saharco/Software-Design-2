@@ -2,6 +2,8 @@ import il.ac.technion.cs.softwaredesign.CourseApp
 import il.ac.technion.cs.softwaredesign.CourseAppStatistics
 import org.junit.jupiter.api.Assertions
 import java.util.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
 
 /**
  *  Data class for representing a user in the system.
@@ -53,7 +55,7 @@ fun CourseApp.leaveRandomChannels(users: ArrayList<User>,
         if (users[userIndex].token == null ||
                 !users[userIndex].channels.contains(channels[channelIndex].name)) continue
 
-        channelPart(users[userIndex].token!!, channels[channelIndex].name)
+        channelPart(users[userIndex].token!!, channels[channelIndex].name).join()
 
         users[userIndex].channels.remove(channels[channelIndex].name)
         channels[channelIndex].totalUsersCount--
@@ -75,7 +77,7 @@ fun CourseApp.performRandomRelog(loggedOutUsers: ArrayList<Int>, users: ArrayLis
         val loggedOutUserIndex = kotlin.random.Random.nextInt(loggedOutUsers.size)
         val user = users[loggedOutUsers[loggedOutUserIndex]]
 
-        user.token = login(user.username, user.password)
+        user.token = login(user.username, user.password).join()
 
         for (channel in channels)
             if (user.channels.contains(channel.name))
@@ -98,7 +100,7 @@ fun CourseApp.performRandomLogout(users: ArrayList<User>,
         val chosenUserIndex = kotlin.random.Random.nextInt(0, users.size)
         if (users[chosenUserIndex].token == null) continue
 
-        logout(users[chosenUserIndex].token!!)
+        logout(users[chosenUserIndex].token!!).join()
 
         users[chosenUserIndex].token = null
         for (channel in channels)
@@ -150,7 +152,7 @@ fun CourseApp.joinRandomChannels(users: ArrayList<User>,
         if (users[chosenUserIndex].channels.contains(chosenChannelName) ||
                 users[chosenUserIndex].token == null) continue
 
-        channelJoin(users[chosenUserIndex].token!!, chosenChannelName)
+        channelJoin(users[chosenUserIndex].token!!, chosenChannelName).join()
 
         channels[chosenChannelIndex].totalUsersCount++
         channels[chosenChannelIndex].onlineUsersCount++
@@ -172,7 +174,7 @@ fun CourseApp.createRandomChannels(users: ArrayList<User>, channelsAmount: Int =
     for (i in 0 until channelsAmount) {
         val name = "#${UUID.randomUUID().toString().replace('-', '_')}"
 
-        channelJoin(adminToken, name)
+        channelJoin(adminToken, name).join()
 
         channels.add(i, Channel(name))
         users[0].channels.add(name)
@@ -189,7 +191,7 @@ fun CourseApp.performRandomUsersLogin(usersAmount: Int = 80): ArrayList<User> {
     val users = ArrayList<User>()
     for (i in 0 until usersAmount) {
         val name = UUID.randomUUID().toString() // this is both the username & the password
-        users.add(i, User(name, name, login(name, name)))
+        users.add(i, User(name, name, login(name, name).join()))
     }
     return users
 }
@@ -266,5 +268,17 @@ fun populateWithRandomStrings(list: ArrayList<String>, amount: Int = 100,
                 .map(pool::get)
                 .joinToString("")
         list.add(randomString)
+    }
+}
+
+/**
+ * Perform [CompletableFuture.join], and if an exception is thrown, unwrap the [CompletionException] and throw the
+ * causing exception.
+ */
+fun <T> CompletableFuture<T>.joinException(): T {
+    try {
+        return this.join()
+    } catch (e: CompletionException) {
+        throw e.cause!!
     }
 }

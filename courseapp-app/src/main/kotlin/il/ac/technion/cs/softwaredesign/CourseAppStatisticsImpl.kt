@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.managers.database.AuthenticationManager
 import il.ac.technion.cs.softwaredesign.managers.database.ChannelsManager
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
+import java.util.concurrent.CompletableFuture
 
 /**
  * Implementation of CourseApp querying functionality
@@ -14,23 +15,38 @@ class CourseAppStatisticsImpl @Inject constructor(dbMapper: DatabaseMapper) : Co
     private val auth = AuthenticationManager(dbMapper)
     private val channelsManager = ChannelsManager(dbMapper)
 
-    override fun totalUsers(): Long {
+    override fun totalUsers(): CompletableFuture<Long> {
         return auth.getTotalUsers()
     }
 
-    override fun loggedInUsers(): Long {
+    override fun loggedInUsers(): CompletableFuture<Long> {
         return auth.getLoggedInUsers()
     }
 
-    override fun top10ChannelsByUsers(): List<String> {
-        return channelsManager.topKChannelsByUsers()
+    override fun pendingMessages(): CompletableFuture<Long> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 
-    override fun top10ActiveChannelsByUsers(): List<String> {
-        return channelsManager.topKChannelsByActiveUsers()
+    override fun channelMessages(): CompletableFuture<Long> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 
-    override fun top10UsersByChannels(): List<String> {
-        return channelsManager.topKUsersByChannels()
+    override fun top10ChannelsByUsers(): CompletableFuture<List<String>> {
+//        return channelsManager.topKChannelsByUsers()
+        TODO()
+    }
+
+    override fun top10ActiveChannelsByUsers(): CompletableFuture<List<String>> {
+//        return channelsManager.topKChannelsByActiveUsers()
+        TODO()
+    }
+
+    override fun top10UsersByChannels(): CompletableFuture<List<String>> {
+//        return channelsManager.topKUsersByChannels()
+        TODO()
+    }
+
+    override fun top10ChannelsByMessages(): CompletableFuture<List<String>> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 }

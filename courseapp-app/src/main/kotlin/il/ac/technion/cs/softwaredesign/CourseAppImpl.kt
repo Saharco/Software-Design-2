@@ -32,38 +32,31 @@ class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     }
 
     override fun channelJoin(token: String, channel: String): CompletableFuture<Unit> {
-//        return channelsManager.channelJoin(token, channel)
-        TODO()
+        return channelsManager.channelJoin(token, channel)
     }
 
     override fun channelPart(token: String, channel: String): CompletableFuture<Unit> {
-//        channelsManager.channelPart(token, channel)
-        TODO()
+        return channelsManager.channelPart(token, channel)
     }
 
     override fun channelMakeOperator(token: String, channel: String, username: String): CompletableFuture<Unit> {
-//        channelsManager.channelMakeOperator(token, channel, username)
-        TODO()
+        return channelsManager.channelMakeOperator(token, channel, username)
     }
 
     override fun channelKick(token: String, channel: String, username: String): CompletableFuture<Unit> {
-//        channelsManager.channelKick(token, channel, username)
-        TODO()
+        return channelsManager.channelKick(token, channel, username)
     }
 
     override fun isUserInChannel(token: String, channel: String, username: String): CompletableFuture<Boolean?> {
-//        return channelsManager.isUserInChannel(token, channel, username)
-        TODO()
+        return channelsManager.isUserInChannel(token, channel, username)
     }
 
     override fun numberOfActiveUsersInChannel(token: String, channel: String): CompletableFuture<Long> {
-//        return channelsManager.numberOfActiveUsersInChannel(token, channel)
-        TODO()
+        return channelsManager.numberOfActiveUsersInChannel(token, channel)
     }
 
     override fun numberOfTotalUsersInChannel(token: String, channel: String): CompletableFuture<Long> {
-//        return channelsManager.numberOfTotalUsersInChannel(token, channel)
-        TODO()
+        return channelsManager.numberOfTotalUsersInChannel(token, channel)
     }
 
     override fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {

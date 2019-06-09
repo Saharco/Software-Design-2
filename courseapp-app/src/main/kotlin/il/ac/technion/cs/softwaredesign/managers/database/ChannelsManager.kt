@@ -10,6 +10,7 @@ import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 import treeTopK
 import updateTree
 import java.time.LocalDateTime
+import java.util.concurrent.CompletableFuture
 
 
 /**
@@ -36,7 +37,48 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     private val channelsByActiveUsers = dbMapper.getStorage("channels_by_active_users")
     private val usersByChannels = dbMapper.getStorage("users_by_channels")
 
-    fun channelJoin(token: String, channel: String) {
+    fun channelJoin(token: String, channel: String): CompletableFuture<Unit> {
+
+        /**
+         * verifies that the user isn't already a member of the channel,
+         * checks for admin privilege if channel is new,
+         * adds channel to user's channels list,
+         * creates channel if its new,
+         * updates total users of channel,
+         * updates online users of channel,
+         * updates trees
+         */
+
+        return tokenToUser(token)
+                .thenApply { tokenUsername ->
+                    if (!validChannelName(channel))
+                        throw NameFormatException("invalid channel name: $channel")
+                    else
+                        tokenUsername
+                }.thenCompose { tokenUsername ->
+                    usersRoot.document(tokenUsername)
+                            .readList("channels")
+                            .thenApply { userChannels ->
+                                userChannels?.toMutableList() ?: mutableListOf()
+                            }.thenApply { userChannels ->
+                                if (!userChannels.contains(channel)) {
+                                    createNewChannelIfNeeded(channel, tokenUsername)
+                                            .thenCompose { isNewChannel ->
+                                                addChannelToUserList(tokenUsername, userChannels, channel)
+                                                        .thenCompose {
+                                                            if (!isNewChannel) {
+                                                                updateChannelUsersCount(channel, tokenUsername)
+                                                                        .thenCompose {
+                                                                            updateChannelOnlineUsersCountIfOnline(
+                                                                                    channel, tokenUsername)
+                                                                        }
+                                                            }
+                                                        }
+                                            }
+                                }
+                            }
+                }
+
         val tokenUsername = tokenToUser(token)
         if (!validChannelName(channel)) throw NameFormatException("invalid channel name: $channel")
 
@@ -92,116 +134,161 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 usersChannelsCount - 1, userCreationCounter)
     }
 
-    fun channelPart(token: String, channel: String) {
-        val tokenUsername = tokenToUser(token)
-        verifyChannelExists(channel)
+    private fun addChannelToUserList(username: String, userChannels: MutableList<String>, channel: String)
+            : CompletableFuture<Unit> {
+        userChannels.add(channel)
 
-        if (!isMemberOfChannel(tokenUsername, channel))
-            throw NoSuchEntityException("user is not a member of the channel")
-
-        expelChannelMember(tokenUsername, channel)
-    }
-
-    fun channelMakeOperator(token: String, channel: String, username: String) {
-        val tokenUsername = tokenToUser(token)
-        verifyChannelExists(channel)
-
-        val isUserAdministrator = isAdmin(tokenUsername)
-        val isUserOperator = isOperator(tokenUsername, channel)
-
-        if (!isUserAdministrator && !isUserOperator)
-            throw UserNotAuthorizedException("user is not an operator / administrator")
-
-        if (isUserAdministrator && !isUserOperator && tokenUsername != username)
-            throw UserNotAuthorizedException("administrator who's not an operator cannot appoint" +
-                    "other users to be operators")
-
-        if (!isMemberOfChannel(tokenUsername, channel))
-            throw UserNotAuthorizedException("user is not a member in the channel")
-
-        val otherUserExists = usersRoot.document(username)
-                .exists().join()
-
-        if (!otherUserExists || !isMemberOfChannel(username, channel))
-            throw NoSuchEntityException("given username is not a member in the channel")
-
-        // all requirements are filled: appoint user to channel operator
-
-        val operators = channelsRoot.document(channel)
-                .readList("operators").join()?.toMutableList() ?: mutableListOf()
-        operators.add(username)
-
-        channelsRoot.document(channel)
-                .set("operators", operators)
+        return usersRoot.document(username)
+                .set("channels", userChannels)
+                .set(Pair("channels_count", userChannels.size.toString()))
                 .update()
     }
 
-    fun channelKick(token: String, channel: String, username: String) {
-        val tokenUsername = tokenToUser(token)
-        verifyChannelExists(channel)
-
-        if (!isOperator(tokenUsername, channel))
-            throw UserNotAuthorizedException("must have operator privileges")
-
-        if (!isMemberOfChannel(username, channel))
-            throw NoSuchEntityException("provided username is not a member of this channel")
-
-        expelChannelMember(username, channel)
+    fun channelPart(token: String, channel: String): CompletableFuture<Unit> {
+        return tokenToUser(token)
+                .thenCompose { tokenUsername ->
+                    verifyChannelExists(channel).thenApply { tokenUsername }
+                }.thenCompose { tokenUsername ->
+                    isMemberOfChannel(tokenUsername, channel)
+                            .thenApply { isMember ->
+                                if (!isMember)
+                                    throw NoSuchEntityException("user is not a member of the channel")
+                            }.thenCompose {
+                                expelChannelMember(tokenUsername, channel)
+                            }
+                }
     }
 
-    fun isUserInChannel(token: String, channel: String, username: String): Boolean? {
-        verifyValidAndPrivilegedToQuery(token, channel)
-
-        if (!usersRoot.document(username)
-                        .exists().join())
-            return null
-        return isMemberOfChannel(username, channel)
+    fun channelMakeOperator(token: String, channel: String, username: String): CompletableFuture<Unit> {
+        return tokenToUser(token)
+                .thenCompose { tokenUsername ->
+                    verifyChannelExists(channel).thenApply { tokenUsername }
+                }.thenCompose { tokenUsername ->
+                    verifyOperatorPromoterPrivilege(channel, tokenUsername, username)
+                }.thenCompose {
+                    channelsRoot.document(channel)
+                            .readList("operators")
+                }.thenApply { operators ->
+                    operators?.toMutableList() ?: mutableListOf()
+                }.thenCompose { operators ->
+                    operators.add(username)
+                    channelsRoot.document(channel)
+                            .set("operators", operators)
+                            .update()
+                }
     }
 
-    fun numberOfActiveUsersInChannel(token: String, channel: String): Long {
-        verifyValidAndPrivilegedToQuery(token, channel)
-
-        return channelsRoot.document(channel)
-                .read("online_users_count").join()?.toLong() ?: 0
-
+    fun channelKick(token: String, channel: String, username: String): CompletableFuture<Unit> {
+        return tokenToUser(token)
+                .thenCompose { tokenUsername ->
+                    verifyChannelExists(channel).thenApply { tokenUsername }
+                }.thenCompose { tokenUsername ->
+                    isOperator(tokenUsername, channel)
+                            .thenApply { isOperator ->
+                                if (!isOperator)
+                                    throw UserNotAuthorizedException("must have operator privileges")
+                            }.thenCompose {
+                                isMemberOfChannel(username, channel)
+                                        .thenApply { isMember ->
+                                            if (!isMember)
+                                                throw NoSuchEntityException(
+                                                        "provided username is not a member of this channel")
+                                        }.thenCompose {
+                                            expelChannelMember(username, channel)
+                                        }
+                            }
+                }
     }
 
-    fun numberOfTotalUsersInChannel(token: String, channel: String): Long {
-        verifyValidAndPrivilegedToQuery(token, channel)
-
-        return channelsRoot.document(channel)
-                .read("users_count").join()!!.toLong()
+    fun isUserInChannel(token: String, channel: String, username: String): CompletableFuture<Boolean?> {
+        return verifyValidAndPrivilegedToQuery(token, channel)
+                .thenCompose {
+                    usersRoot.document(username)
+                            .exists()
+                }.thenCompose { exists ->
+                    if (!exists)
+                        CompletableFuture.completedFuture(null as Boolean?)
+                    else
+                        @Suppress("UNCHECKED_CAST")
+                        isMemberOfChannel(username, channel) as CompletableFuture<Boolean?>
+                }
     }
 
-    fun topKChannelsByUsers(k: Int = 10): List<String> {
-        return treeTopK(channelsByUsers, k)
+    fun numberOfActiveUsersInChannel(token: String, channel: String): CompletableFuture<Long> {
+        return verifyValidAndPrivilegedToQuery(token, channel)
+                .thenCompose {
+                    channelsRoot.document(channel)
+                            .read("online_users_count")
+                            .thenApply { usersCount -> usersCount?.toLong() ?: 0 }
+                }
+    }
+
+    fun numberOfTotalUsersInChannel(token: String, channel: String): CompletableFuture<Long> {
+        return verifyValidAndPrivilegedToQuery(token, channel)
+                .thenCompose {
+                    channelsRoot.document(channel)
+                            .read("users_count")
+                            .thenApply { usersCount -> usersCount?.toLong() ?: 0 }
+                }
+    }
+
+    fun topKChannelsByUsers(k: Int = 10): CompletableFuture<List<String>> {
+        //FIXME
+//        return treeTopK(channelsByUsers, k)
+        return CompletableFuture.completedFuture(treeTopK(channelsByUsers, k))
     }
 
 
-    fun topKChannelsByActiveUsers(k: Int = 10): List<String> {
-        return treeTopK(channelsByActiveUsers, k)
+    fun topKChannelsByActiveUsers(k: Int = 10): CompletableFuture<List<String>> {
+        //FIXME
+//        return treeTopK(channelsByActiveUsers, k)
+        return CompletableFuture.completedFuture(treeTopK(channelsByActiveUsers, k))
     }
 
 
-    fun topKUsersByChannels(k: Int = 10): List<String> {
-        return treeTopK(usersByChannels, k)
+    fun topKUsersByChannels(k: Int = 10): CompletableFuture<List<String>> {
+        //FIXME
+//        return treeTopK(usersByChannels, k)
+        return CompletableFuture.completedFuture(treeTopK(usersByChannels, k))
     }
 
     /**
      * Creates a new channel with a given operator for the channel
      */
-    private fun createNewChannel(channel: String, operatorUsername: String) {
-        val creationCounter = metadataDocument.read("creation_counter").join()?.toInt()?.plus(1) ?: 1
-        metadataDocument.set(Pair("creation_counter", creationCounter.toString()))
-                .update()
+    private fun createNewChannelIfNeeded(channel: String, operatorUsername: String): CompletableFuture<Boolean> {
+        return channelsRoot.document(channel)
+                .exists()
+                .thenCompose { exists ->
+                    if (exists)
+                        CompletableFuture.completedFuture(false)
+                    else {
+                        isAdmin(operatorUsername)
+                                .thenApply { isAdmin ->
+                                    if (!isAdmin)
+                                        throw UserNotAuthorizedException("only an administrator may create a new channel")
+                                }.thenCompose {
+                                    // creation of new channel
 
-        channelsRoot.document(channel)
-                .set("operators", listOf(operatorUsername))
-                .set(Pair("users_count", "1"))
-                .set(Pair("online_users_count", "1"))
-                .set(Pair("creation_time", LocalDateTime.now().toString()))
-                .set(Pair("creation_counter", creationCounter.toString()))
-                .write()
+                                    metadataDocument.read("creation_counter")
+                                            .thenApply { oldCreationCounter ->
+                                                oldCreationCounter?.toInt()?.plus(1) ?: 1
+                                            }.thenCompose { creationCounter ->
+                                                metadataDocument.set(Pair("creation_counter", creationCounter.toString()))
+                                                        .update()
+                                                        .thenApply { creationCounter }
+                                            }.thenCompose { creationCounter ->
+                                                channelsRoot.document(channel)
+                                                        .set("operators", listOf(operatorUsername))
+                                                        .set(Pair("users_count", "1"))
+                                                        .set(Pair("online_users_count", "1"))
+                                                        .set(Pair("creation_time", LocalDateTime.now().toString()))
+                                                        .set(Pair("creation_counter", creationCounter.toString()))
+                                                        .write()
+                                                        .thenApply { true }
+                                            }
+                                }
+                    }
+                }
     }
 
     /**
@@ -211,86 +298,23 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      * @throws NoSuchEntityException If [channel] does not exist.
      * @throws UserNotAuthorizedException If [token] identifies a user who is not an administrator and is not a member
      */
-    private fun verifyValidAndPrivilegedToQuery(token: String, channel: String) {
-        val tokenUsername = tokenToUser(token)
-        verifyChannelExists(channel)
-        if (!isAdmin(tokenUsername) && !isMemberOfChannel(tokenUsername, channel))
-            throw UserNotAuthorizedException("must be an admin or a member of the channel")
-    }
-
-    /**
-     * Kicks a user from a channel, updates relevant storage information
-     */
-    private fun expelChannelMember(username: String, channel: String) {
-        val userChannels = usersRoot.document(username)
-                .readList("channels").join()?.toMutableList() ?: mutableListOf()
-        userChannels.remove(channel)
-        usersRoot.document(username)
-                .set("channels", userChannels)
-                .set(Pair("channels_count", userChannels.size.toString()))
-                .update()
-
-        val operators = channelsRoot.document(channel)
-                .readList("operators").join()?.toMutableList() ?: mutableListOf()
-
-        if (operators.contains(username)) {
-            operators.remove(username)
-            channelsRoot.document(channel)
-                    .set("operators", operators)
-                    .update()
-        }
-
-        val usersCount = channelsRoot.document(channel)
-                .read("users_count").join()!!.toInt() - 1
-        var onlineUsersCount = 0
-        var channelDeleted = false
-        if (usersCount == 0) {
-            // the last user has left the channel: delete the channel
-            channelsRoot.document(channel)
-                    .delete()
-            channelDeleted = true
-        }
-
-        var isUserLoggedIn = false
-        if (!channelDeleted) {
-            if (usersRoot.document(username)
-                            .read("token").join() != null) {
-                isUserLoggedIn = true
-                onlineUsersCount = channelsRoot.document(channel)
-                        .read("online_users_count").join()?.toInt()?.minus(1) ?: 0
-
-                channelsRoot.document(channel)
-                        .set(Pair("online_users_count", onlineUsersCount.toString()))
-                        .update()
-            }
-
-            channelsRoot.document(channel)
-                    .set(Pair("users_count", usersCount.toString()))
-                    .update()
-        }
-
-        val channelCreationCounter = channelsRoot.document(channel)
-                .read("creation_counter").join()?.toInt() ?: 0
-        val userCreationCounter = usersRoot.document(username)
-                .read("creation_counter").join()?.toInt() ?: 0
-        val usersChannelsCount = userChannels.size
-
-        val prevOnlineUsersCount = if (isUserLoggedIn) onlineUsersCount + 1 else onlineUsersCount
-        updateTree(channelsByUsers, channel, usersCount, usersCount + 1,
-                channelCreationCounter, usersCount <= 0)
-        updateTree(channelsByActiveUsers, channel, onlineUsersCount, prevOnlineUsersCount,
-                channelCreationCounter)
-        updateTree(usersByChannels, username, usersChannelsCount,
-                usersChannelsCount + 1, userCreationCounter)
-    }
-
-    /**
-     * Returns whether a given user is a member of a given channel or not
-     */
-    private fun isMemberOfChannel(username: String, channel: String): Boolean {
-        val channelsList = usersRoot.document(username)
-                .readList("channels").join()
-        return channelsList != null && channelsList.contains(channel)
+    private fun verifyValidAndPrivilegedToQuery(token: String, channel: String): CompletableFuture<Unit> {
+        return verifyChannelExists(channel)
+                .thenCompose { tokenToUser(token) }
+                .thenCompose { tokenUsername ->
+                    isAdmin(tokenUsername)
+                            .thenCompose { isAdmin ->
+                                if (isAdmin)
+                                    CompletableFuture.completedFuture(Unit)
+                                else
+                                    isMemberOfChannel(tokenUsername, channel)
+                                            .thenApply { isMember ->
+                                                if (!isMember)
+                                                    throw UserNotAuthorizedException(
+                                                            "must be an admin or a member of the channel")
+                                            }
+                            }
+                }
     }
 
     /**
@@ -298,10 +322,218 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      *
      * @throws NoSuchEntityException if the channel does not exist
      */
-    private fun verifyChannelExists(channel: String) {
-        if (!channelsRoot.document(channel)
-                        .exists().join())
-            throw NoSuchEntityException("given channel does not exist")
+    private fun verifyChannelExists(channel: String): CompletableFuture<Unit> {
+        return channelsRoot.document(channel)
+                .exists()
+                .thenApply { exists ->
+                    if (!exists)
+                        throw NoSuchEntityException("given channel does not exist")
+                }
+    }
+
+    /**
+     * Verifies that a user can appoint another use to be an operator of a channel
+     *
+     * @param channel: name of the channel
+     * @param tokenUsername: username of the promoter
+     * @param username: username of the user who's to be promoted
+     *
+     * @throws UserNotAuthorizedException if [tokenUsername] does not have the privilege to promote [username] to be an operator of the channel
+     */
+    private fun verifyOperatorPromoterPrivilege(channel: String, tokenUsername: String, username: String):
+            CompletableFuture<Unit> {
+        return isAdmin(tokenUsername)
+                .thenCompose { isAdmin ->
+                    isOperator(tokenUsername, channel)
+                            .thenApply { isOperator ->
+                                if (!isAdmin && !isOperator)
+                                    throw UserNotAuthorizedException("user is not an operator / administrator")
+
+                                if (isAdmin && !isOperator && tokenUsername != username)
+                                    throw UserNotAuthorizedException("administrator who's not an operator cannot " +
+                                            "appoint other users to be operators")
+                            }.thenCompose {
+                                isMemberOfChannel(tokenUsername, channel)
+                                        .thenApply { isMember ->
+                                            if (!isMember)
+                                                throw UserNotAuthorizedException("user is not a member in the channel")
+                                        }
+                            }
+                }
+    }
+
+    /**
+     * Kicks a user from a channel, along with all necessary updates:
+     *
+     *  removes channel from user's channels' list,
+     *  removes operator from channel's operators list if the user is an operator for this channel,
+     *  decreases users count of channel by 1,
+     *  decreases online users count of channel by 1 if user is logged in,
+     *  deletes channel if it is empty,
+     *  updates query trees
+     *
+     */
+    private fun expelChannelMember(username: String, channel: String): CompletableFuture<Unit> {
+        return removeChannelFromUserList(username, channel)
+                .thenCompose { removeOperatorFromChannel(channel, username) }
+                .thenCompose { userChannelsCount ->
+                    updateChannelUsersCount(channel, change = -1)
+                            .thenApply { totalUsers -> Pair(userChannelsCount, totalUsers) }
+                }.thenCompose { pair ->
+                    updateChannelOnlineUsersCountIfOnline(channel, username, change = -1)
+                            .thenApply { onlineUsers -> Triple(pair.first, pair.second, onlineUsers) }
+                }.thenCompose { triple ->
+                    if (triple.second == 0)
+                        deleteChannel(channel)
+                                .thenApply { triple }
+                    else
+                        CompletableFuture.completedFuture(triple)
+                }.thenCompose { triple ->
+                    decreaseTrees(channel, username, triple.first, triple.second, triple.third)
+                }
+    }
+
+    private fun decreaseTrees(channel: String, username: String, userChannelsCount: Int, channelTotalUsers: Int,
+                              channelOnlineUsers: Int): CompletableFuture<Unit> {
+        return channelsRoot.document(channel)
+                .read("creation_counter")
+                .thenApply { channelCreationCounter ->
+                    channelCreationCounter?.toInt() ?: 0
+                }.thenCompose { channelCreationCounter ->
+                    usersRoot.document(username)
+                            .read("creation_counter")
+                            .thenApply { userCreationCounter ->
+                                Pair(channelCreationCounter, userCreationCounter?.toInt() ?: 0)
+                            }
+                }.thenCompose { pair ->
+                    usersRoot.document(username)
+                            .read("token")
+                            .thenApply { token ->
+                                if (token != null)
+                                    Triple(pair.first, pair.second, channelOnlineUsers + 1)
+                                else
+                                    Triple(pair.first, pair.second, channelOnlineUsers)
+                            }
+                }.thenApply { triple ->
+                    //FIXME - trees should also work with futures
+                    updateTree(channelsByUsers, channel, channelTotalUsers, channelTotalUsers + 1,
+                            triple.first, channelTotalUsers <= 0)
+                    updateTree(channelsByActiveUsers, channel, channelOnlineUsers, triple.third, triple.first)
+                    updateTree(usersByChannels, username, userChannelsCount, userChannelsCount + 1,
+                            triple.second)
+                }
+    }
+
+    /**
+     * Deletes a channel document from the database
+     */
+    private fun deleteChannel(channel: String): CompletableFuture<Unit> {
+        return channelsRoot.document(channel)
+                .delete()
+    }
+
+    /**
+     * Removes a channel from a user's list of channels
+     *
+     * @return amount of channels the user is a member of after removal
+     */
+    private fun removeChannelFromUserList(username: String, channel: String): CompletableFuture<Int> {
+        return usersRoot.document(username)
+                .readList("channels")
+                .thenApply { userChannels ->
+                    userChannels?.toMutableList() ?: mutableListOf()
+                }.thenCompose { userChannels ->
+                    userChannels.remove(channel)
+                    usersRoot.document(username)
+                            .set("channels", userChannels)
+                            .set(Pair("channels_count", userChannels.size.toString()))
+                            .update()
+                            .thenApply { userChannels.size }
+                }
+    }
+
+    /**
+     * Updates a channel's users count
+     *
+     * @return amount of users in the channel after the update
+     */
+    private fun updateChannelUsersCount(channel: String, change: Int = 1): CompletableFuture<Int> {
+        return channelsRoot.document(channel)
+                .read("users_count")
+                .thenApply { oldUsersCount ->
+                    oldUsersCount?.toInt()?.plus(change) ?: 0
+                }.thenCompose { newUsersCount ->
+                    channelsRoot.document(channel)
+                            .set(Pair("users_count", newUsersCount.toString()))
+                            .update()
+                            .thenApply { newUsersCount }
+                }
+    }
+
+
+    /**
+     * Updates a channel's online users count
+     *
+     * @return amount of online users in the channel after the update
+     */
+    private fun updateChannelOnlineUsersCountIfOnline(channel: String, username: String, change: Int = 1)
+            : CompletableFuture<Int> {
+
+        var effectiveChange = 0
+        val isOnlineFuture = usersRoot.document(username)
+                .read("token")
+                .thenApply { token ->
+                    if (token != null)
+                        effectiveChange = change
+                }
+
+        return isOnlineFuture.thenCompose {
+            channelsRoot.document(channel)
+                    .read("online_users_count")
+                    .thenApply { oldOnlineUsersCount ->
+                        oldOnlineUsersCount?.toInt()?.plus(effectiveChange) ?: 0
+                    }.thenCompose { newOnlineUsersCount ->
+                        channelsRoot.document(channel)
+                                .set(Pair("online_users_count", newOnlineUsersCount.toString()))
+                                .update()
+                                .thenApply { newOnlineUsersCount }
+                    }
+        }
+    }
+
+    /**
+     * Removes a user from the list of operators for this channel, if the user is indeed an operator for the channel.
+     *
+     * @return amount of operators in the channel after removal
+     */
+    private fun removeOperatorFromChannel(channel: String, operatorToDelete: String)
+            : CompletableFuture<Int> {
+        return channelsRoot.document(channel)
+                .readList("operators")
+                .thenApply { operators ->
+                    operators?.toMutableList() ?: mutableListOf()
+                }.thenCompose { operators ->
+                    if (!operators.contains(operatorToDelete))
+                        CompletableFuture.completedFuture(operators.size)
+                    else {
+                        operators.remove(operatorToDelete)
+                        channelsRoot.document(channel)
+                                .set("operators", operators)
+                                .update()
+                                .thenApply { operators.size }
+                    }
+                }
+    }
+
+    /**
+     * Returns whether a given user is a member of a given channel or not
+     */
+    private fun isMemberOfChannel(username: String, channel: String): CompletableFuture<Boolean> {
+        return usersRoot.document(username)
+                .readList("channels")
+                .thenApply { channels ->
+                    channels != null && channels.contains(channel)
+                }
     }
 
     /**
@@ -309,28 +541,34 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      *
      * @throws InvalidTokenException if the token does not belong to any user
      */
-    private fun tokenToUser(token: String): String {
+    private fun tokenToUser(token: String): CompletableFuture<String> {
         return tokensRoot.document(token)
-                .read("username").join()
-                ?: throw InvalidTokenException("token does not match any active user")
+                .read("username")
+                .thenApply { tokenUsername ->
+                    tokenUsername ?: throw InvalidTokenException("token does not match any active user")
+                }
     }
 
     /**
      * Returns whether or not a given user is an administrator
      */
-    private fun isAdmin(username: String): Boolean {
+    private fun isAdmin(username: String): CompletableFuture<Boolean> {
         return usersRoot.document(username)
-                .read("isAdmin").join()
-                .equals("true")
+                .read("isAdmin")
+                .thenApply { isAdmin ->
+                    isAdmin == "true"
+                }
     }
 
     /**
      * Returns whether or not a given user is an operator of a given channel
      */
-    private fun isOperator(username: String, channel: String): Boolean {
-        val channelModerators = channelsRoot.document(channel)
-                .readList("operators").join() ?: return false
-        return channelModerators.contains(username)
+    private fun isOperator(username: String, channel: String): CompletableFuture<Boolean> {
+        return channelsRoot.document(channel)
+                .readList("operators")
+                .thenApply { channelModerators ->
+                    channelModerators?.contains(username) ?: false
+                }
     }
 
     /**

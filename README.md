@@ -60,7 +60,7 @@ The database is utilized by the following classes for managing database operatio
 ### Testing Summary
 The following components were thoroughly tested:
 * **Database**: tested in CourseAppDatabaseTest. All five components that make up the complete implementation of the database are tested together here. The components work together and you can't do anything useful without all of them at once, hence they're tested together.
-* **CourseApp**: tested in CourseAppTest. All the manager classes that make up the complete functionality of the CourseApp are tested together here. The managers are tested together with CourseApp here for the same reason above.
+* **CourseApp**: tested in CourseAppAuthenticationTest. All the manager classes that make up the complete functionality of the CourseApp are tested together here. The managers are tested together with CourseApp here for the same reason above.
 * **CourseAppStatistics**: tested in CourseAppStatisticsTest. The "top 10" methods' correctness is tested via load testing, and utilizes classes, methods & extension methods provided by utils.kt.
 * **AVLTree**: tested in AVLTreeTest.
 

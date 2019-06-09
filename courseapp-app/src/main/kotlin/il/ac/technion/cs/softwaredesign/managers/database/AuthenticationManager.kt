@@ -42,27 +42,28 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
 
             if (storedPassword != null && storedPassword != password)
                 throw NoSuchEntityException("incorrect password")
+            else
+                storedPassword
+        }.thenCompose { storedPassword ->
+
             userDocument.read("token").thenApply { storedToken ->
                 if (storedToken != null)
-                    throw UserAlreadyLoggedInException()
+                    throw UserAlreadyLoggedInException("please logout before logging in again")
+            }.thenApply {
+                val token = generateToken(username)
+                userDocument.set(Pair("token", token))
+                Pair(storedPassword, token)
+            }.thenCompose { pair ->
+                updateLoginData(userDocument, pair.first, password, username)
+                        .thenApply { pair.second }
+            }.thenCompose { token ->
+                tokensRoot.document(token)
+                        .set(Pair("username", username))
+                        .write()
+                        .thenApply { token }
+            }.thenApply { token ->
+                token
             }
-
-            storedPassword
-        }.thenApply { storedPassword ->
-
-            val token = generateToken(username)
-            userDocument.set(Pair("token", token))
-            Pair(storedPassword, token)
-        }.thenCompose { pair ->
-            updateLoginData(userDocument, pair.first, password, username)
-                    .thenApply { pair.second }
-        }.thenCompose { token ->
-            tokensRoot.document(token)
-                    .set(Pair("username", username))
-                    .write()
-                    .thenApply { token }
-        }.thenApply { token ->
-            token
         }
     }
 
@@ -164,37 +165,39 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
      */
     private fun updateLoginData(userDocument: DocumentReference, storedPassword: String?,
                                 enteredPassword: String, username: String): CompletableFuture<Unit> {
-        val future: CompletableFuture<Unit> = CompletableFuture.completedFuture(Unit)
+        var future = CompletableFuture.completedFuture(Unit)
+
         if (storedPassword == null) {
-            future.thenApply {
+            future = future.thenCompose {
                 metadataRoot.document("users_data")
-                        .read("creation_counter").thenApply { oldCounter ->
-                            oldCounter?.toInt()?.plus(1) ?: 1
-                        }.thenApply { newCounter ->
-                            metadataRoot.document("users_data")
-                                    .set(Pair("creation_counter", newCounter.toString()))
-                                    .update()
-                                    .thenApply {
-                                        userDocument.set(Pair("password", enteredPassword))
-                                                .set(Pair("creation_time", LocalDateTime.now().toString()))
-                                                .set(Pair("creation_counter", newCounter.toString()))
-                                        val usersCountDocument = metadataRoot.document("users_data")
-                                        usersCountDocument.read("users_count").thenApply { oldUsersCount ->
-                                            oldUsersCount?.toInt()?.plus(1) ?: 1
-                                        }.thenApply { newUsersCount ->
-                                            if (newUsersCount == 1)
-                                                userDocument.set(Pair("isAdmin", "true"))
-                                            usersCountDocument.set(Pair("users_count", newUsersCount.toString()))
-                                                    .update()
-                                                    .thenApply {
-                                                        updateTree(usersByChannelsStorage,
-                                                                username, 0, 0, newCounter)
-                                                    }
-                                        }
-                                    }
-                        }
+                        .read("creation_counter")
+            }.thenApply { oldCounter ->
+                oldCounter?.toInt()?.plus(1) ?: 1
+            }.thenCompose { newCounter ->
+                metadataRoot.document("users_data")
+                        .set(Pair("creation_counter", newCounter.toString()))
+                        .update()
+                        .thenApply { newCounter }
+            }.thenCompose { newCounter ->
+                userDocument.set(Pair("password", enteredPassword))
+                        .set(Pair("creation_time", LocalDateTime.now().toString()))
+                        .set(Pair("creation_counter", newCounter.toString()))
+                metadataRoot.document("users_data")
+                        .read("users_count")
+                        .thenApply { oldUsersCount -> oldUsersCount?.toInt()?.plus(1) ?: 1 }
+            }.thenCompose { newUsersCount ->
+                if (newUsersCount == 1)
+                    userDocument.set(Pair("isAdmin", "true"))
+                metadataRoot.document("users_data")
+                        .set(Pair("users_count", newUsersCount.toString()))
+                        .update()
+                        .thenApply { newUsersCount }
+            }.thenApply { newUsersCount ->
+                updateTree(usersByChannelsStorage,
+                        username, 0, 0, newUsersCount)
             }
         }
+
         val usersCountDocument = metadataRoot.document("users_data")
 
         return future.thenCompose {

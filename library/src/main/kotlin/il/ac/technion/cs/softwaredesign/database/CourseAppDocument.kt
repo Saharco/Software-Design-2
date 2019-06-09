@@ -91,8 +91,7 @@ abstract class CourseAppDocument internal constructor(path: String, val storage:
     private fun <T> readField(field: String, deserializer: (List<Byte>) -> T): CompletableFuture<T?> {
         return isValidPath().thenCompose { result ->
             if (!result) {
-                @Suppress("UNCHECKED_CAST")
-                CompletableFuture.completedFuture(null as T)
+                CompletableFuture.completedFuture(null as T?)
             } else {
                 val key = ("$path$field/").toByteArray()
                 storage.read(key)

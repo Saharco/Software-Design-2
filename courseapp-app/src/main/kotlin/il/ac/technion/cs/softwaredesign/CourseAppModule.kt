@@ -40,8 +40,7 @@ class CourseAppModule : KotlinModule() {
         val dbMap = mutableMapOf<String, CompletableFuture<Database>>()
         val storageMap = mutableMapOf<String, CompletableFuture<SecureStorage>>()
 
-        mapNewDatabase(dbMap, "users")
-        mapNewDatabase(dbMap, "channels")
+        mapNewDatabase(dbMap, "course_app_database")
 
         mapNewStorage(storageMap, "channels_by_users")
         mapNewStorage(storageMap, "channels_by_active_users")

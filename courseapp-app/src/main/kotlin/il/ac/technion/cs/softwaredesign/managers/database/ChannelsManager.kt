@@ -24,14 +24,14 @@ import java.util.concurrent.CompletableFuture
  */
 class ChannelsManager(private val dbMapper: DatabaseMapper) {
 
-    private val usersRoot = dbMapper.getDatabase("users")
+    private val usersRoot = dbMapper.getDatabase("course_app_database")
             .collection("all_users")
-    private val tokensRoot = dbMapper.getDatabase("users")
+    private val tokensRoot = dbMapper.getDatabase("course_app_database")
             .collection("tokens")
-    private val channelsRoot = dbMapper.getDatabase("channels")
+    private val channelsRoot = dbMapper.getDatabase("course_app_database")
             .collection("all_channels")
-    private val metadataDocument = dbMapper.getDatabase("channels")
-            .collection("metadata").document("channels_data")
+    private val metadataDocument = dbMapper.getDatabase("course_app_database")
+            .collection("channels_metadata").document("channels_data")
 
     private val channelsByUsersStorage = dbMapper.getStorage("channels_by_users")
     private val channelsByActiveUsersStorage = dbMapper.getStorage("channels_by_active_users")

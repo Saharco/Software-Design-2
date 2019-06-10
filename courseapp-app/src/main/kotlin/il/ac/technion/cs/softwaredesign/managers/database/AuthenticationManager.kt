@@ -25,14 +25,14 @@ import java.util.concurrent.CompletableFuture
 class AuthenticationManager(private val dbMapper: DatabaseMapper) {
 
 
-    private val usersRoot = dbMapper.getDatabase("users")
+    private val usersRoot = dbMapper.getDatabase("course_app_database")
             .collection("all_users")
-    private val tokensRoot = dbMapper.getDatabase("users")
+    private val tokensRoot = dbMapper.getDatabase("course_app_database")
             .collection("tokens")
-    private val channelsRoot = dbMapper.getDatabase("channels")
+    private val channelsRoot = dbMapper.getDatabase("course_app_database")
             .collection("all_channels")
-    private val metadataRoot = dbMapper.getDatabase("users")
-            .collection("metadata")
+    private val metadataRoot = dbMapper.getDatabase("course_app_database")
+            .collection("users_metadata")
     private val usersByChannelsStorage = dbMapper.getStorage("users_by_channels")
     private val channelsByActiveUsersStorage = dbMapper.getStorage("channels_by_active_users")
 

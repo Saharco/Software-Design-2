@@ -16,7 +16,7 @@ allprojects {
     extra.apply {
         set("junitVersion", "5.5.0-M1")
         set("hamkrestVersion", "1.7.0.0")
-        set("mockkVersion", "1.9")
+        set("mockkVersion", "1.9.3")
         set("guiceVersion", "4.2.2")
         set("kotlinGuiceVersion", "1.3.0")
         set("gsonVersion", "2.8.5")

@@ -37,17 +37,16 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     private val channelsByActiveUsers = dbMapper.getStorage("channels_by_active_users")
     private val usersByChannels = dbMapper.getStorage("users_by_channels")
 
+    /**
+     * verifies that the user isn't already a member of the channel,
+     * checks for admin privilege if channel is new,
+     * adds channel to user's channels list,
+     * creates channel if its new,
+     * updates total users of channel,
+     * updates online users of channel,
+     * updates trees
+     */
     fun channelJoin(token: String, channel: String): CompletableFuture<Unit> {
-
-        /**
-         * verifies that the user isn't already a member of the channel,
-         * checks for admin privilege if channel is new,
-         * adds channel to user's channels list,
-         * creates channel if its new,
-         * updates total users of channel,
-         * updates online users of channel,
-         * updates trees
-         */
 
         return tokenToUser(token)
                 .thenApply { tokenUsername ->
@@ -59,89 +58,27 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                     usersRoot.document(tokenUsername)
                             .readList("channels")
                             .thenApply { userChannels ->
-                                userChannels?.toMutableList() ?: mutableListOf()
-                            }.thenApply { userChannels ->
-                                if (!userChannels.contains(channel)) {
-                                    createNewChannelIfNeeded(channel, tokenUsername)
-                                            .thenCompose { isNewChannel ->
-                                                addChannelToUserList(tokenUsername, userChannels, channel)
-                                                        .thenCompose {
-                                                            if (!isNewChannel) {
-                                                                updateChannelUsersCount(channel, tokenUsername)
-                                                                        .thenCompose {
-                                                                            updateChannelOnlineUsersCountIfOnline(
-                                                                                    channel, tokenUsername)
-                                                                        }
-                                                            }
+                                Pair(tokenUsername, userChannels?.toMutableList() ?: mutableListOf())
+                            }
+                }.thenCompose { pair ->
+                    if (!pair.second.contains(channel)) {
+                        createNewChannelIfNeeded(channel, pair.first)
+                                .thenCompose {
+                                    addChannelToUserList(pair.first, pair.second, channel)
+                                }.thenCompose { userChannelsCount ->
+                                    updateChannelUsersCount(channel)
+                                            .thenCompose { channelTotalUsers ->
+                                                updateChannelOnlineUsersCountIfOnline(channel, pair.first)
+                                                        .thenCompose { channelOnlineUsers ->
+                                                            increaseTrees(channel, pair.first, userChannelsCount,
+                                                                    channelTotalUsers, channelOnlineUsers)
                                                         }
                                             }
                                 }
-                            }
+                    } else {
+                        CompletableFuture.completedFuture(Unit)
+                    }
                 }
-
-        val tokenUsername = tokenToUser(token)
-        if (!validChannelName(channel)) throw NameFormatException("invalid channel name: $channel")
-
-        val userChannels = usersRoot.document(tokenUsername)
-                .readList("channels").join()?.toMutableList() ?: mutableListOf()
-
-        // finish if user attempts to join a channel they're already members of
-        if (userChannels.contains(channel)) return
-
-        var newChannelFlag = false
-        if (!channelsRoot.document(channel).exists().join()) {
-            if (!isAdmin(tokenUsername))
-                throw UserNotAuthorizedException("only an administrator may create a new channel")
-
-            createNewChannel(channel, tokenUsername)
-            newChannelFlag = true
-        }
-
-        userChannels.add(channel)
-
-        usersRoot.document(tokenUsername)
-                .set("channels", userChannels)
-                .set(Pair("channels_count", userChannels.size.toString()))
-                .update()
-
-        var usersCount = 1
-        var onlineUsersCount = 1
-        if (!newChannelFlag) {
-            usersCount = channelsRoot.document(channel)
-                    .read("users_count").join()?.toInt()?.plus(1) ?: 1
-            channelsRoot.document(channel)
-                    .set(Pair("users_count", usersCount.toString()))
-                    .update()
-
-            onlineUsersCount = channelsRoot.document(channel)
-                    .read("online_users_count").join()?.toInt()?.plus(1) ?: 1
-            channelsRoot.document(channel)
-                    .set(Pair("online_users_count", onlineUsersCount.toString()))
-                    .update()
-        }
-
-        val channelCreationCounter = channelsRoot.document(channel)
-                .read("creation_counter").join()?.toInt() ?: 0
-        val userCreationCounter = usersRoot.document(tokenUsername)
-                .read("creation_counter").join()?.toInt() ?: 0
-        val usersChannelsCount = userChannels.size
-
-        updateTree(channelsByUsers, channel, usersCount, usersCount - 1,
-                channelCreationCounter)
-        updateTree(channelsByActiveUsers, channel, onlineUsersCount, onlineUsersCount - 1,
-                channelCreationCounter)
-        updateTree(usersByChannels, tokenUsername, usersChannelsCount,
-                usersChannelsCount - 1, userCreationCounter)
-    }
-
-    private fun addChannelToUserList(username: String, userChannels: MutableList<String>, channel: String)
-            : CompletableFuture<Unit> {
-        userChannels.add(channel)
-
-        return usersRoot.document(username)
-                .set("channels", userChannels)
-                .set(Pair("channels_count", userChannels.size.toString()))
-                .update()
     }
 
     fun channelPart(token: String, channel: String): CompletableFuture<Unit> {
@@ -253,6 +190,20 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     }
 
     /**
+     * Adds a channel to a given user's channels field in the appropriate database document
+     */
+    private fun addChannelToUserList(username: String, userChannels: MutableList<String>, channel: String)
+            : CompletableFuture<Int> {
+        userChannels.add(channel)
+
+        return usersRoot.document(username)
+                .set("channels", userChannels)
+                .set(Pair("channels_count", userChannels.size.toString()))
+                .update()
+                .thenApply { userChannels.size }
+    }
+
+    /**
      * Creates a new channel with a given operator for the channel
      */
     private fun createNewChannelIfNeeded(channel: String, operatorUsername: String): CompletableFuture<Boolean> {
@@ -279,8 +230,8 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                                             }.thenCompose { creationCounter ->
                                                 channelsRoot.document(channel)
                                                         .set("operators", listOf(operatorUsername))
-                                                        .set(Pair("users_count", "1"))
-                                                        .set(Pair("online_users_count", "1"))
+                                                        .set(Pair("users_count", "0"))
+                                                        .set(Pair("online_users_count", "0"))
                                                         .set(Pair("creation_time", LocalDateTime.now().toString()))
                                                         .set(Pair("creation_counter", creationCounter.toString()))
                                                         .write()
@@ -423,6 +374,30 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                             triple.second)
                 }
     }
+
+    private fun increaseTrees(channel: String, username: String, userChannelsCount: Int, channelTotalUsers: Int,
+                              channelOnlineUsers: Int): CompletableFuture<Unit> {
+        return channelsRoot.document(channel)
+                .read("creation_counter")
+                .thenApply { channelCreationCounter ->
+                    channelCreationCounter?.toInt() ?: 0
+                }.thenCompose { channelCreationCounter ->
+                    usersRoot.document(username)
+                            .read("creation_counter")
+                            .thenApply { userCreationCounter ->
+                                Pair(channelCreationCounter, userCreationCounter?.toInt() ?: 0)
+                            }
+                }.thenApply { pair ->
+                    //FIXME - trees should also work with futures
+                    updateTree(channelsByUsers, channel, channelTotalUsers, channelTotalUsers - 1,
+                            pair.first)
+                    updateTree(channelsByActiveUsers, channel, channelOnlineUsers, channelOnlineUsers - 1,
+                            pair.first)
+                    updateTree(usersByChannels, username, userChannelsCount, userChannelsCount - 1,
+                            pair.second)
+                }
+    }
+
 
     /**
      * Deletes a channel document from the database

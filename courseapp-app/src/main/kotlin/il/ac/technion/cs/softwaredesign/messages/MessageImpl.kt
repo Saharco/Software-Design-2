@@ -9,7 +9,7 @@ import java.time.LocalDateTime
 
 class MessageImpl(override val id: Long, override val media: MediaType, override val contents: ByteArray,
                   override val created: LocalDateTime, override var received: LocalDateTime? = null,
-                  var sender: String? = null, var usersCount: Int = 0) : Message {
+                  var sender: String? = null, var usersCount: Long = 0) : Message {
 
     companion object {
         fun deserialize(string: String): MessageImpl {
@@ -24,6 +24,6 @@ class MessageImpl(override val id: Long, override val media: MediaType, override
     }
 
     fun isDonePending(): Boolean {
-        return usersCount == 0
+        return usersCount == 0L
     }
 }

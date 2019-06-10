@@ -70,15 +70,15 @@ class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     }
 
     override fun channelSend(token: String, channel: String, message: Message): CompletableFuture<Unit> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.channelSend(token, channel, message)
     }
 
     override fun broadcast(token: String, message: Message): CompletableFuture<Unit> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.broadcast(token, message)
     }
 
     override fun privateSend(token: String, user: String, message: Message): CompletableFuture<Unit> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.privateSend(token, user, message)
     }
 
     override fun fetchMessage(token: String, id: Long): CompletableFuture<Pair<String, Message>> {

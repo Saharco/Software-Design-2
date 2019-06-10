@@ -33,8 +33,8 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
             .collection("tokens")
     private val channelsRoot = dbMapper.getDatabase(dbName)
             .collection("all_channels")
-    private val metadataDocument = dbMapper.getDatabase(dbName)
-            .collection("channels_metadata").document("channels_data")
+    private val usersMetadataRoot = dbMapper.getDatabase("course_app_database")
+            .collection("users_metadata")
 
     fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
         return tokenToUser(token)
@@ -45,7 +45,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                         messageListeners[tokenUsername]?.add(callback)
                     tokenUsername
                 }.thenCompose { tokenUsername ->
-                    tryReadingPendingMessages(tokenUsername, token, callback)
+                    tryReadingPendingMessages(tokenUsername, callback)
                 }
     }
 
@@ -60,6 +60,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     fun channelSend(token: String, channel: String, message: Message): CompletableFuture<Unit> {
+        val messageToSend = message as MessageImpl
         return tokenToUser(token)
                 .thenCompose { tokenUsername ->
                     channelsRoot.document(channel)
@@ -78,16 +79,65 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                                     tokenUsername
                             }
                 }.thenCompose { tokenUsername ->
-
+                    channelsRoot.document(channel)
+                            .read("users_count")
+                            .thenApply { Pair(tokenUsername, it!!.toLong()) }
+                }.thenCompose { (tokenUsername, channelUsersCount) ->
+                    messageToSend.sender = "$channel@$tokenUsername"
+                    messageToSend.usersCount = channelUsersCount
+                    val messageDoc = messagesRoot.document("${channel}_messages")
+                    uploadMessage(messageToSend, messageDoc)
+                            .thenApply { messageToSend }
+                }.thenCompose { uploadedMessage ->
+                    invokeChannelCallbacks(channel, messageListeners.keys.toList(), uploadedMessage)
                 }
     }
 
     fun broadcast(token: String, message: Message): CompletableFuture<Unit> {
-        TODO()
+        val messageToSend = message as MessageImpl
+        return tokenToUser(token)
+                .thenCompose { tokenUsername ->
+                    isAdmin(tokenUsername)
+                            .thenApply { isAdmin ->
+                                if (!isAdmin)
+                                    throw UserNotAuthorizedException("only admin may send broadcast messages")
+                                tokenUsername
+                            }
+                }.thenCompose {
+                    usersMetadataRoot.document("users_data")
+                            .read("users_count")
+                            .thenApply { it!!.toLong() }
+                }.thenCompose { usersCount ->
+                    messageToSend.sender = "BROADCAST"
+                    messageToSend.usersCount = usersCount
+                    val messageDoc = messagesRoot.document("broadcast_messages")
+                    uploadMessage(messageToSend, messageDoc)
+                            .thenApply { messageToSend }
+                }.thenCompose { uploadedMessage ->
+                    invokeBroadcastCallbacks(messageListeners.keys.toList(), uploadedMessage)
+                }
     }
 
     fun privateSend(token: String, user: String, message: Message): CompletableFuture<Unit> {
-        TODO()
+        val messageToSend = message as MessageImpl
+        return tokenToUser(token)
+                .thenCompose { tokenUsername ->
+                    usersRoot.document(user)
+                            .exists()
+                            .thenApply { exists ->
+                                if (!exists)
+                                    throw NoSuchEntityException("$user does not exist")
+                                tokenUsername
+                            }
+                }.thenCompose { tokenUsername ->
+                    messageToSend.sender = "@$tokenUsername"
+                    messageToSend.usersCount = 1
+                    val messageDoc = usersRoot.document(user)
+                    uploadMessage(messageToSend, messageDoc)
+                            .thenApply { messageToSend }
+                }.thenCompose { uploadedMessage ->
+                    invokeUserCallbacks(user, uploadedMessage)
+                }
     }
 
     fun fetchMessage(token: String, id: Long): CompletableFuture<Pair<String, Message>> {
@@ -97,13 +147,13 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     /**
      * Invokes the callback for all broadcast, channel & private messages that the user *hasn't read*
      */
-    private fun tryReadingPendingMessages(username: String, token: String, callback: ListenerCallback)
+    private fun tryReadingPendingMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Unit> {
-        return tryReadingBroadcastMessages(username, token, callback)
+        return tryReadingBroadcastMessages(username, callback)
                 .thenCompose { maxBroadcastId ->
-                    tryReadingChannelMessages(username, token, callback)
+                    tryReadingChannelMessages(username, callback)
                             .thenCompose { maxChannelId ->
-                                tryReadingPrivateMessages(username, token, callback)
+                                tryReadingPrivateMessages(username, callback)
                                         .thenCompose { maxPrivateId ->
                                             val maxId = maxOf(maxBroadcastId, maxChannelId, maxPrivateId)
                                             usersRoot.document(username)
@@ -115,7 +165,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
 
-    private fun tryReadingListOfMessages(username: String, token: String, callback: ListenerCallback,
+    private fun tryReadingListOfMessages(username: String, callback: ListenerCallback,
                                          msgsListDoc: DocumentReference): CompletableFuture<Long> {
         return msgsListDoc.readList("messages")
                 .thenApply { stringList ->
@@ -162,44 +212,90 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     /**
      * Invokes the callback for all broadcast messages that the user *hasn't read*
      */
-    private fun tryReadingPrivateMessages(username: String, token: String, callback: ListenerCallback)
+    private fun tryReadingPrivateMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
         val msgsDocument = usersRoot.document(username)
-        return tryReadingListOfMessages(username, token, callback, msgsDocument)
+        return tryReadingListOfMessages(username, callback, msgsDocument)
     }
 
     /**
      * Invokes the callback for all channel messages that the user *hasn't read*
      */
-    private fun tryReadingChannelMessages(username: String, token: String, callback: ListenerCallback)
+    private fun tryReadingChannelMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
         return usersRoot.document(username)
                 .readList("channels")
                 .thenCompose { channels ->
-                    tryReadingChannelMessagesAux(channels, username, token, callback)
+                    tryReadingChannelMessagesAux(channels, username, callback)
                 }
     }
 
-    private fun tryReadingChannelMessagesAux(channels: List<String>?, username: String, token: String,
+    private fun tryReadingChannelMessagesAux(channels: List<String>?, username: String,
                                              callback: ListenerCallback, index: Int = 0, currentMax: Long = 0)
             : CompletableFuture<Long> {
         if (channels == null || channels.size <= index)
             return CompletableFuture.completedFuture(currentMax)
-        val msgsDocument = messagesRoot.document("broadcast_messages")
-        return tryReadingListOfMessages(username, token, callback, msgsDocument)
+        val msgsDocument = messagesRoot.document("${channels[index]}_messages")
+        return tryReadingListOfMessages(username, callback, msgsDocument)
                 .thenCompose { currentChannelMax ->
                     val newMax = maxOf(currentMax, currentChannelMax)
-                    tryReadingChannelMessagesAux(channels, username, token, callback, index + 1, newMax)
+                    tryReadingChannelMessagesAux(channels, username, callback, index + 1, newMax)
                 }
     }
 
     /**
      * Invokes the callback for all private messages that the user *hasn't read*
      */
-    private fun tryReadingBroadcastMessages(username: String, token: String, callback: ListenerCallback)
+    private fun tryReadingBroadcastMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
         val msgsDocument = messagesRoot.document("broadcast_messages")
-        return tryReadingListOfMessages(username, token, callback, msgsDocument)
+        return tryReadingListOfMessages(username, callback, msgsDocument)
+    }
+
+    private fun invokeChannelCallbacks(channel: String, users: List<String>, message: MessageImpl, index: Int = 0)
+            : CompletableFuture<Unit> {
+        if (users.size <= index)
+            return CompletableFuture.completedFuture(Unit)
+        return isMemberOfChannel(users[index], channel)
+                .thenCompose { result ->
+                    if (result) {
+                        invokeUserCallbacks(users[index], message)
+                    } else {
+                        CompletableFuture.completedFuture(Unit)
+                    }
+                }.thenCompose {
+                    invokeChannelCallbacks(channel, users, message, index + 1)
+                }
+    }
+
+    private fun invokeBroadcastCallbacks(users: List<String>, message: MessageImpl, index: Int = 0)
+            : CompletableFuture<Unit> {
+        if (users.size <= index)
+            return CompletableFuture.completedFuture(Unit)
+        return invokeUserCallbacks(users[index], message)
+                .thenCompose {
+                    invokeBroadcastCallbacks(users, message, index + 1)
+                }
+    }
+
+    private fun invokeUserCallbacks(username: String, message: MessageImpl, index: Int = 0): CompletableFuture<Unit> {
+        val userCallbacks = messageListeners[username]
+        if (userCallbacks == null || userCallbacks.size <= index)
+            return CompletableFuture.completedFuture(Unit)
+        return userCallbacks[index](message.sender!!, message)
+                .thenCompose { invokeUserCallbacks(username, message, index + 1) }
+    }
+
+    private fun uploadMessage(messageToSend: MessageImpl, messageDoc: DocumentReference): CompletableFuture<Unit> {
+        return messageDoc.readList("messages")
+                .thenApply {
+                    val msgsList = deserializeToMessagesList(it)
+                    msgsList.add(messageToSend)
+                    msgsList
+                }.thenCompose { msgsList ->
+                    messageDoc.set("messages", serializeMessagesList(msgsList))
+                            .update()
+                }
     }
 
     /**
@@ -227,6 +323,17 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 .readList("channels")
                 .thenApply { channels ->
                     channels != null && channels.contains(channel)
+                }
+    }
+
+    /**
+     * Returns whether or not a given user is an administrator
+     */
+    private fun isAdmin(username: String): CompletableFuture<Boolean> {
+        return usersRoot.document(username)
+                .read("isAdmin")
+                .thenApply { isAdmin ->
+                    isAdmin == "true"
                 }
     }
 

@@ -16,7 +16,6 @@ class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     private val auth = AuthenticationManager(dbMapper)
     private val channelsManager = ChannelsManager(dbMapper)
     private val messagesManager = MessagesManager(dbMapper)
-    private val messageListeners = HashSet<ListenerCallback>()
 
     override fun login(username: String, password: String): CompletableFuture<String> {
         return auth.performLogin(username, password)
@@ -63,11 +62,11 @@ class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     }
 
     override fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
-        TODO()
+        return messagesManager.addListener(token, callback)
     }
 
     override fun removeListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.removeListener(token, callback)
     }
 
     override fun channelSend(token: String, channel: String, message: Message): CompletableFuture<Unit> {

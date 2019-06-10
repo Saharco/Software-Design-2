@@ -5,6 +5,10 @@ import com.google.inject.Provides
 import com.google.inject.Singleton
 import il.ac.technion.cs.softwaredesign.database.CourseAppDatabaseFactory
 import il.ac.technion.cs.softwaredesign.database.Database
+import il.ac.technion.cs.softwaredesign.messages.Message
+import il.ac.technion.cs.softwaredesign.messages.MessageFactory
+import il.ac.technion.cs.softwaredesign.messages.MessageFactoryImpl
+import il.ac.technion.cs.softwaredesign.messages.MessageImpl
 import il.ac.technion.cs.softwaredesign.mocks.SecureStorageFactoryMock
 import il.ac.technion.cs.softwaredesign.storage.SecureStorage
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
@@ -32,11 +36,12 @@ class CourseAppModule : KotlinModule() {
         bind<CourseApp>().to<CourseAppImpl>()
         bind<CourseAppStatistics>().to<CourseAppStatisticsImpl>()
         bind<CourseAppInitializer>().to<CourseAppInitializerImpl>()
+        bind<MessageFactory>().to<MessageFactoryImpl>()
     }
 
     @Provides
     @Singleton
-    fun courseAppProvider(): DatabaseMapper {
+    fun dbMapperProvider(): DatabaseMapper {
         val dbMap = mutableMapOf<String, CompletableFuture<Database>>()
         val storageMap = mutableMapOf<String, CompletableFuture<SecureStorage>>()
 

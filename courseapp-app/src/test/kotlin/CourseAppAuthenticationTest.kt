@@ -92,7 +92,7 @@ class CourseAppAuthenticationTest {
     }
 
     @Test
-    internal fun `system can hold lots of distinct users and tokens`() {
+    internal fun `load test - system can hold lots of distinct users and tokens`() {
         val strings = ArrayList<String>()
         populateWithRandomStrings(strings, amount = 30)
         val users = strings.distinct()

@@ -3,6 +3,7 @@ package il.ac.technion.cs.softwaredesign
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.managers.database.AuthenticationManager
 import il.ac.technion.cs.softwaredesign.managers.database.ChannelsManager
+import il.ac.technion.cs.softwaredesign.managers.database.MessagesManager
 import il.ac.technion.cs.softwaredesign.messages.Message
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 import java.util.concurrent.CompletableFuture
@@ -14,6 +15,7 @@ import java.util.concurrent.CompletableFuture
 class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     private val auth = AuthenticationManager(dbMapper)
     private val channelsManager = ChannelsManager(dbMapper)
+    private val messagesManager = MessagesManager(dbMapper)
     private val messageListeners = HashSet<ListenerCallback>()
 
     override fun login(username: String, password: String): CompletableFuture<String> {
@@ -61,7 +63,7 @@ class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     }
 
     override fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        TODO()
     }
 
     override fun removeListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {

@@ -272,4 +272,31 @@ class CourseAppChannelsTest {
         assertEquals(0, app.numberOfActiveUsersInChannel(adminToken, channelOne).join())
         assertEquals(1, app.numberOfActiveUsersInChannel(adminToken, channelTwo).join())
     }
+
+    @Test
+    internal fun `trying to query number of members in the channel when user is not a member of the channel nor an admin should throw UserNotAuthorizedException`() {
+        val nonAdminToken = app.login("alon", "rotubardo")
+                .thenCompose { adminToken -> app.channelJoin(adminToken, "#FishNuggets") }
+                .thenCompose { app.login("yuval", "the stupido") }.join()
+
+        assertThrows<UserNotAuthorizedException> {
+            app.numberOfTotalUsersInChannel(nonAdminToken,"#FishNuggets").joinException()
+        }
+
+        assertThrows<UserNotAuthorizedException> {
+            app.numberOfActiveUsersInChannel(nonAdminToken,"#FishNuggets").joinException()
+        }
+    }
+
+    @Test
+    fun `checking if user is member of a channel when the user does not exist should return null`() {
+        val isYuvalMember = app.login("alon", "rotubardo")
+                .thenCompose { adminToken ->
+                    app.channelJoin(adminToken, "#FishNuggets").thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    app.isUserInChannel(adminToken, "#FishNuggets", "yuval")
+                }.join()
+
+        assertNull(isYuvalMember)
+    }
 }

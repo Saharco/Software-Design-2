@@ -33,9 +33,9 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     private val metadataDocument = dbMapper.getDatabase("channels")
             .collection("metadata").document("channels_data")
 
-    private val channelsByUsers = dbMapper.getStorage("channels_by_users")
-    private val channelsByActiveUsers = dbMapper.getStorage("channels_by_active_users")
-    private val usersByChannels = dbMapper.getStorage("users_by_channels")
+    private val channelsByUsersStorage = dbMapper.getStorage("channels_by_users")
+    private val channelsByActiveUsersStorage = dbMapper.getStorage("channels_by_active_users")
+    private val usersByChannelsStorage = dbMapper.getStorage("users_by_channels")
 
     /**
      * verifies that the user isn't already a member of the channel,
@@ -172,21 +172,21 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     fun topKChannelsByUsers(k: Int = 10): CompletableFuture<List<String>> {
         //FIXME
 //        return treeTopK(channelsByUsers, k)
-        return CompletableFuture.completedFuture(treeTopK(channelsByUsers, k))
+        return CompletableFuture.completedFuture(treeTopK(channelsByUsersStorage, k))
     }
 
 
     fun topKChannelsByActiveUsers(k: Int = 10): CompletableFuture<List<String>> {
         //FIXME
 //        return treeTopK(channelsByActiveUsers, k)
-        return CompletableFuture.completedFuture(treeTopK(channelsByActiveUsers, k))
+        return CompletableFuture.completedFuture(treeTopK(channelsByActiveUsersStorage, k))
     }
 
 
     fun topKUsersByChannels(k: Int = 10): CompletableFuture<List<String>> {
         //FIXME
 //        return treeTopK(usersByChannels, k)
-        return CompletableFuture.completedFuture(treeTopK(usersByChannels, k))
+        return CompletableFuture.completedFuture(treeTopK(usersByChannelsStorage, k))
     }
 
     /**
@@ -343,6 +343,10 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                     decreaseTrees(channel, username, triple.first, triple.second, triple.third)
                 }
     }
+    /**
+     * Decreases the total users count in a given channel as well as the amount of channels the new member is part of.
+     * If the user is currently logged in: the amount of online users is decreased as well
+     */
 
     private fun decreaseTrees(channel: String, username: String, userChannelsCount: Int, channelTotalUsers: Int,
                               channelOnlineUsers: Int): CompletableFuture<Unit> {
@@ -367,14 +371,17 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                             }
                 }.thenApply { triple ->
                     //FIXME - trees should also work with futures
-                    updateTree(channelsByUsers, channel, channelTotalUsers, channelTotalUsers + 1,
+                    updateTree(channelsByUsersStorage, channel, channelTotalUsers, channelTotalUsers + 1,
                             triple.first, channelTotalUsers <= 0)
-                    updateTree(channelsByActiveUsers, channel, channelOnlineUsers, triple.third, triple.first)
-                    updateTree(usersByChannels, username, userChannelsCount, userChannelsCount + 1,
+                    updateTree(channelsByActiveUsersStorage, channel, channelOnlineUsers, triple.third, triple.first)
+                    updateTree(usersByChannelsStorage, username, userChannelsCount, userChannelsCount + 1,
                             triple.second)
                 }
     }
 
+    /**
+     * Increases the total users & online users count in a given channel as well as the amount of channels the new member is part of.
+     */
     private fun increaseTrees(channel: String, username: String, userChannelsCount: Int, channelTotalUsers: Int,
                               channelOnlineUsers: Int): CompletableFuture<Unit> {
         return channelsRoot.document(channel)
@@ -389,11 +396,11 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                             }
                 }.thenApply { pair ->
                     //FIXME - trees should also work with futures
-                    updateTree(channelsByUsers, channel, channelTotalUsers, channelTotalUsers - 1,
+                    updateTree(channelsByUsersStorage, channel, channelTotalUsers, channelTotalUsers - 1,
                             pair.first)
-                    updateTree(channelsByActiveUsers, channel, channelOnlineUsers, channelOnlineUsers - 1,
-                            pair.first)
-                    updateTree(usersByChannels, username, userChannelsCount, userChannelsCount - 1,
+                    updateTree(channelsByActiveUsersStorage, channel, channelOnlineUsers,
+                            channelOnlineUsers - 1, pair.first)
+                    updateTree(usersByChannelsStorage, username, userChannelsCount, userChannelsCount - 1,
                             pair.second)
                 }
     }

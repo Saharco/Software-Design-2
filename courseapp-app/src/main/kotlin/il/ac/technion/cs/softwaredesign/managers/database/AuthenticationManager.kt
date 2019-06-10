@@ -184,17 +184,16 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
                         .set(Pair("creation_counter", newCounter.toString()))
                 metadataRoot.document("users_data")
                         .read("users_count")
-                        .thenApply { oldUsersCount -> oldUsersCount?.toInt()?.plus(1) ?: 1 }
-            }.thenCompose { newUsersCount ->
-                if (newUsersCount == 1)
+                        .thenApply { oldUsersCount -> Pair(newCounter, oldUsersCount?.toInt()?.plus(1) ?: 1) }
+            }.thenCompose { pair ->
+                if (pair.second == 1)
                     userDocument.set(Pair("isAdmin", "true"))
                 metadataRoot.document("users_data")
-                        .set(Pair("users_count", newUsersCount.toString()))
+                        .set(Pair("users_count", pair.second.toString()))
                         .update()
-                        .thenApply { newUsersCount }
-            }.thenApply { newUsersCount ->
-                updateTree(usersByChannelsStorage,
-                        username, 0, 0, newUsersCount)
+                        .thenApply { pair.first }
+            }.thenApply { newCounter ->
+                updateTree(usersByChannelsStorage, username, 0, 0, newCounter)
             }
         }
 
@@ -236,10 +235,8 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
                 }.thenCompose { newOnlineUsersCount ->
                     channelsRoot.document(channel).read("creation_counter")
                             .thenApply { creationCounter ->
-                                Pair(newOnlineUsersCount, creationCounter)
+                                Pair(newOnlineUsersCount, creationCounter!!.toInt())
                             }
-                }.thenApply { pair ->
-                    Pair(pair.first, pair.second!!.toInt())
                 }.thenApply { pair ->
                     updateTree(channelsByActiveUsersStorage, channel,
                             pair.first, pair.first - updateCount, pair.second)

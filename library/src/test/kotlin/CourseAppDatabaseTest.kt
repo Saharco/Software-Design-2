@@ -12,7 +12,6 @@ class CourseAppDatabaseTest {
     private var storageFactory = SecureStorageFactoryMock()
     private val dbFactory = CourseAppDatabaseFactory(storageFactory)
 
-
     @BeforeEach
     internal fun resetDatabase() {
         storageFactory = SecureStorageFactoryMock()

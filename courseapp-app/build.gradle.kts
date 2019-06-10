@@ -8,11 +8,17 @@ application {
 
 val junitVersion: String? by extra
 val hamkrestVersion: String? by extra
-val mockkVersion = "1.9"
+
+val mockkVersion: String? by extra
+
 val guiceVersion: String? by extra
 val kotlinGuiceVersion: String? by extra
-val gsonVersion = "2.8.5"
-val kotsonVersion = "2.5.0"
+
+val gsonVersion: String? by extra
+val kotsonVersion: String? by extra
+
+val kotlinLoggerVersion: String? by extra
+val kotlinLoggerImplVersion: String? by extra
 
 
 dependencies {
@@ -27,6 +33,9 @@ dependencies {
     testImplementation("io.mockk:mockk:$mockkVersion")
     compile("com.google.code.gson", "gson", gsonVersion)
     compile("com.github.salomonbrys.kotson", "kotson", kotsonVersion)
+    
+    compile("io.github.microutils:kotlin-logging:$kotlinLoggerVersion")
+    compile ("org.slf4j:slf4j-simple:$kotlinLoggerImplVersion")
 
     testRuntime("org.junit.jupiter", "junit-jupiter-engine", junitVersion)
 }

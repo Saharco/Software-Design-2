@@ -14,6 +14,7 @@ import java.util.concurrent.CompletableFuture
 class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     private val auth = AuthenticationManager(dbMapper)
     private val channelsManager = ChannelsManager(dbMapper)
+    private val messageListeners = HashSet<ListenerCallback>()
 
     override fun login(username: String, password: String): CompletableFuture<String> {
         return auth.performLogin(username, password)

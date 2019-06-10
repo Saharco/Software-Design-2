@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import il.ac.technion.cs.softwaredesign.storage.SecureStorage
 import io.github.vjames19.futures.jdk8.Future
+import mu.KotlinLogging
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -11,8 +12,10 @@ import java.util.concurrent.CompletableFuture
  *
  * This class is abstract - it can only be constructed via [CourseAppCollection]
  */
+private val logger = KotlinLogging.logger {}
 abstract class CourseAppDocument internal constructor(path: String, val storage: SecureStorage)
     : DocumentReference {
+
     protected val path: String = "$path/"
     private var data: HashMap<String, String> = HashMap()
 
@@ -43,9 +46,10 @@ abstract class CourseAppDocument internal constructor(path: String, val storage:
         if (data.isEmpty())
             return Future { throw IllegalStateException("Can\'t write empty document") }
         return exists().thenCompose { result ->
-            if (result)
+            if (result) {
+                logger.debug { "attempted writing a document that already exists" }
                 throw IllegalArgumentException("Document already exists")
-            else {
+            } else {
                 allocatePath().thenCompose {
                     writeEntries(data.entries.toMutableList())
                 }
@@ -91,28 +95,33 @@ abstract class CourseAppDocument internal constructor(path: String, val storage:
     private fun <T> readField(field: String, deserializer: (List<Byte>) -> T): CompletableFuture<T?> {
         return isValidPath().thenCompose { result ->
             if (!result) {
+                logger.debug { "did not find field \"$field\" in the document" }
                 CompletableFuture.completedFuture(null as T?)
             } else {
                 val key = ("$path$field/").toByteArray()
                 storage.read(key)
                         .thenApply { value ->
                             val bytesList = value?.toList()
-                            if (bytesList == null || !isActivated(bytesList[0]))
+                            if (bytesList == null || !isActivated(bytesList[0])) {
+                                logger.debug { "$field was previously deleted from the document: it cannot be read" }
                                 null
-                            else
+                            } else {
                                 deserializer(bytesList)
+                            }
                         }
             }
         }
     }
 
     private fun deserializeToString(bytesList: List<Byte>): String {
+        logger.debug { "reading string formatted field" }
         return String(bytesList
                 .takeLast(bytesList.size - 1)
                 .toByteArray())
     }
 
     private fun deserializeToList(bytesList: List<Byte>): List<String> {
+        logger.debug { "reading list formatted field" }
         val json = String(bytesList
                 .takeLast(bytesList.size - 1)
                 .toByteArray())

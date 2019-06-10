@@ -23,6 +23,8 @@ allprojects {
         set("kotsonVersion", "2.5.0")
         set("kotlinCompletableFuturesVersion", "1.2.0")
         set("kotlinListenableFuturesVersion", "1.2.0")
+        set("kotlinLoggerVersion", "1.6.24")
+        set("kotlinLoggerImplVersion", "1.6.1")
     }
 }
 

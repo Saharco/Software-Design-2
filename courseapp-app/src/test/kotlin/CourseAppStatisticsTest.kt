@@ -21,12 +21,12 @@ class CourseAppStatisticsTest {
 
     @Test
     internal fun `can query total users when no users exist yet`() {
-        assertEquals(0, statistics.totalUsers())
+        assertEquals(0, statistics.totalUsers().join())
     }
 
     @Test
     internal fun `can query logged in users when no users are logged in`() {
-        assertEquals(0, statistics.loggedInUsers())
+        assertEquals(0, statistics.loggedInUsers().join())
     }
 
     @Test

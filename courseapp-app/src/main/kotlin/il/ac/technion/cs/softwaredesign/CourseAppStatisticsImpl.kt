@@ -32,18 +32,15 @@ class CourseAppStatisticsImpl @Inject constructor(dbMapper: DatabaseMapper) : Co
     }
 
     override fun top10ChannelsByUsers(): CompletableFuture<List<String>> {
-//        return channelsManager.topKChannelsByUsers()
-        TODO()
+        return channelsManager.topKChannelsByUsers()
     }
 
     override fun top10ActiveChannelsByUsers(): CompletableFuture<List<String>> {
-//        return channelsManager.topKChannelsByActiveUsers()
-        TODO()
+        return channelsManager.topKChannelsByActiveUsers()
     }
 
     override fun top10UsersByChannels(): CompletableFuture<List<String>> {
-//        return channelsManager.topKUsersByChannels()
-        TODO()
+        return channelsManager.topKUsersByChannels()
     }
 
     override fun top10ChannelsByMessages(): CompletableFuture<List<String>> {

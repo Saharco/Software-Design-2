@@ -247,9 +247,9 @@ fun verifyQueriesCorrectness(statistics: CourseAppStatistics, users: ArrayList<U
         expectedTop10UsersByChannels.add(heap3.poll().username)
     }
 
-    Assertions.assertEquals(expectedTop10ChannelsByUsers, statistics.top10ChannelsByUsers())
-    Assertions.assertEquals(expectedTop10ChannelsByActiveUsers, statistics.top10ActiveChannelsByUsers())
-    Assertions.assertEquals(expectedTop10UsersByChannels, statistics.top10UsersByChannels())
+    Assertions.assertEquals(expectedTop10ChannelsByUsers, statistics.top10ChannelsByUsers().join())
+    Assertions.assertEquals(expectedTop10ChannelsByActiveUsers, statistics.top10ActiveChannelsByUsers().join())
+    Assertions.assertEquals(expectedTop10UsersByChannels, statistics.top10UsersByChannels().join())
 }
 
 /**

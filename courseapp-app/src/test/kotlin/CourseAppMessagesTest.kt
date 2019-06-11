@@ -191,14 +191,13 @@ class CourseAppMessagesTest {
 
         app.addListener(nonAdminToken, listener).join()
 
-        assertEquals(1, statistics.pendingMessages().join())
+        assertEquals(0, statistics.pendingMessages().join())
 
         verify {
             listener(match { it == "@Admin" },
                     match { it.contents contentEquals "Smiley".toByteArray() })
         }
     }
-
 
     @Test
     internal fun `user listener is called when attached after a channel message was sent`() {

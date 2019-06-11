@@ -238,11 +238,11 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                             .read("last_message_read")
                             .thenApply { lastIdRead -> Pair(msgsList, lastIdRead?.toLong() ?: 0) }
                 }.thenCompose { (msgsList, lastIdRead) ->
-                    tryReadingListOfMessagesAux(msgsListDoc, callback, msgsList, lastIdRead)
+                    tryReadingListOfMessagesAux(username, msgsListDoc, callback, msgsList, lastIdRead)
                 }
     }
 
-    private fun tryReadingListOfMessagesAux(msgsDoc: DocumentReference, callback: ListenerCallback,
+    private fun tryReadingListOfMessagesAux(username: String, msgsDoc: DocumentReference, callback: ListenerCallback,
                                             msgsList: MutableList<MessageImpl>, lastIdRead: Long, index: Int = 0,
                                             currentMax: Long = lastIdRead): CompletableFuture<Long> {
         if (msgsList.size <= index) {
@@ -253,14 +253,17 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
 
         if (msgsList[index].id <= lastIdRead)
             return tryReadingListOfMessagesAux(
-                    msgsDoc, callback, msgsList, lastIdRead, index + 1, currentMax)
+                    username, msgsDoc, callback, msgsList, lastIdRead, index + 1, currentMax)
 
         // user should read this message
         return callback(msgsList[index].sender!!, msgsList[index])
-                .thenApply { msgsList[index].usersCount = 1 }
+                .thenApply { msgsList[index].usersCount -= 1 }
                 .thenCompose {
+                    tryDeleteMessage(username, msgsList[index])
+                }.thenCompose {
                     val nextMax = maxOf(currentMax, msgsList[index].id)
-                    tryReadingListOfMessagesAux(msgsDoc, callback, msgsList, lastIdRead, index + 1, nextMax)
+                    tryReadingListOfMessagesAux(
+                            username, msgsDoc, callback, msgsList, lastIdRead, index + 1, nextMax)
                 }
     }
 
@@ -344,6 +347,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
         if (message.sender!![0] == '@')
         // private message
             messageDoc = usersRoot.document(username)
+
         return messageDoc.readList("messages")
                 .thenApply { deserializeToMessagesList(it) }
                 .thenApply { removeMessageById(it, message.id) }

@@ -82,6 +82,6 @@ class CourseAppImpl @Inject constructor(dbMapper: DatabaseMapper) : CourseApp {
     }
 
     override fun fetchMessage(token: String, id: Long): CompletableFuture<Pair<String, Message>> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.fetchMessage(token, id)
     }
 }

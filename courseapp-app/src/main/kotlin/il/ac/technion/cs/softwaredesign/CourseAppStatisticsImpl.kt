@@ -46,6 +46,6 @@ class CourseAppStatisticsImpl @Inject constructor(dbMapper: DatabaseMapper) : Co
     }
 
     override fun top10ChannelsByMessages(): CompletableFuture<List<String>> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.topKChannelsByMessages()
     }
 }

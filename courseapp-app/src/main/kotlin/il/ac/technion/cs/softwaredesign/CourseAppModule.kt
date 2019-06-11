@@ -50,6 +50,7 @@ class CourseAppModule : KotlinModule() {
         mapNewStorage(storageMap, "channels_by_users")
         mapNewStorage(storageMap, "channels_by_active_users")
         mapNewStorage(storageMap, "users_by_channels")
+        mapNewStorage(storageMap, "channels_by_messages")
         return DatabaseMapper(dbMap, storageMap)
     }
 

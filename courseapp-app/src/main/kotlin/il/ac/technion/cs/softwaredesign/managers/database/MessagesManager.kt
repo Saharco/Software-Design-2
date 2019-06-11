@@ -10,6 +10,8 @@ import il.ac.technion.cs.softwaredesign.exceptions.UserNotAuthorizedException
 import il.ac.technion.cs.softwaredesign.messages.Message
 import il.ac.technion.cs.softwaredesign.messages.MessageImpl
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
+import treeTopK
+import updateTree
 import java.time.LocalDateTime
 import java.util.concurrent.CompletableFuture
 
@@ -39,6 +41,8 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
 
     private val channelsRoot = dbMapper.getDatabase(dbName)
             .collection("all_channels")
+
+    private val channelsByMessagesStorage = dbMapper.getStorage("channels_by_messages")
 
     fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
         return tokenToUser(token)
@@ -89,11 +93,27 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }.thenCompose { (tokenUsername, channelUsersCount) ->
                     messageToSend.sender = "$channel@$tokenUsername"
                     messageToSend.usersCount = channelUsersCount
-                    val messageDoc = messagesRoot.document("${channel}_messages")
+                    val messageDoc = messagesRoot.document("channel_messages")
                     uploadMessage(messageToSend, messageDoc)
                             .thenApply { messageToSend }
                 }.thenCompose { uploadedMessage ->
                     invokeChannelCallbacks(channel, messageListeners.keys.toList(), uploadedMessage)
+                }.thenCompose {
+                    channelsRoot.document(channel)
+                            .read("messages_count")
+                            .thenApply { it?.toInt() ?: 0 }
+                }.thenCompose { oldMsgsCount ->
+                    channelsRoot.document(channel)
+                            .set(Pair("messages_count", (oldMsgsCount + 1).toString()))
+                            .update()
+                            .thenApply { oldMsgsCount + 1 }
+                }.thenCompose { newMsgsCount ->
+                    channelsRoot.document(channel)
+                            .read("creation_counter")
+                            .thenApply { Pair(newMsgsCount, it?.toInt() ?: 0) }
+                }.thenApply { (newMsgsCount, channelCreationCounter) ->
+                    updateTree(channelsByMessagesStorage, channel, newMsgsCount, newMsgsCount - 1,
+                            channelCreationCounter)
                 }
     }
 
@@ -145,7 +165,31 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     fun fetchMessage(token: String, id: Long): CompletableFuture<Pair<String, Message>> {
-        TODO()
+        return tokenToUser(token)
+                .thenCompose { tokenUsername ->
+                    messagesRoot.document("channel_messages")
+                            .readList("messages")
+                            .thenApply { Pair(tokenUsername, deserializeToMessagesList(it)) }
+                }.thenApply { (tokenUsername, channelMessages) ->
+                    val foundMessages: List<MessageImpl> = channelMessages.asSequence()
+                            .filter { it.id == id }
+                            .toList()
+                    if (foundMessages.isEmpty())
+                        throw NoSuchEntityException("message with id $id does not exist")
+                    val foundMessage: MessageImpl = foundMessages[0]
+                    Pair(tokenUsername, foundMessage)
+                }.thenCompose { (tokenUsername, foundMessage) ->
+                    usersRoot.document(tokenUsername)
+                            .readList("channels")
+                            .thenApply { Pair(foundMessage, it) }
+                }.thenApply { (foundMessage, userChannels) ->
+                    val requiredChannelName = foundMessage.sender!!.substringBefore('@')
+                    if (userChannels == null || !userChannels.contains(requiredChannelName)) {
+                        throw UserNotAuthorizedException(
+                                "Must be a member of $requiredChannelName to fetch its messages")
+                    }
+                    Pair(foundMessage.sender!!, foundMessage)
+                }
     }
 
     fun pendingMessages(): CompletableFuture<Long> {
@@ -156,6 +200,11 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     fun channelMessages(): CompletableFuture<Long> {
         return messagesMetadataRoot.read("channels_pending_messages_count")
                 .thenApply { it?.toLong() ?: 0 }
+    }
+
+    fun topKChannelsByMessages(k: Int = 10): CompletableFuture<List<String>> {
+        //FIXME
+        return CompletableFuture.completedFuture(treeTopK(channelsByMessagesStorage, k))
     }
 
     /**
@@ -253,7 +302,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
             : CompletableFuture<Long> {
         if (channels == null || channels.size <= index)
             return CompletableFuture.completedFuture(currentMax)
-        val msgsDocument = messagesRoot.document("${channels[index]}_messages")
+        val msgsDocument = messagesRoot.document("channel_messages")
         return tryReadingListOfMessages(username, callback, msgsDocument)
                 .thenCompose { currentChannelMax ->
                     val newMax = maxOf(currentMax, currentChannelMax)

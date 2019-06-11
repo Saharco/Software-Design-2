@@ -7,9 +7,10 @@ import java.util.concurrent.CompletableFuture
 
 class MessageFactoryImpl @Inject constructor(dbMapper: DatabaseMapper) : MessageFactory {
 
-    private val messagesRoot = dbMapper.getDatabase("course_app_database")
-            .collection("messages_metadata")
-            .document("messages_counters")
+    private val dbName = "course_app_database"
+    private val messagesRoot = dbMapper.getDatabase(dbName)
+            .collection("all_messages")
+            .document("metadata")
 
     override fun create(media: MediaType, contents: ByteArray): CompletableFuture<Message> {
         return messagesRoot.read("constructed_messages_count")

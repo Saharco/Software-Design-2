@@ -10,6 +10,7 @@ import il.ac.technion.cs.softwaredesign.exceptions.UserNotAuthorizedException
 import il.ac.technion.cs.softwaredesign.messages.Message
 import il.ac.technion.cs.softwaredesign.messages.MessageImpl
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
+import java.time.LocalDateTime
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -27,14 +28,17 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
 
     private val messagesRoot = dbMapper.getDatabase(dbName)
             .collection("all_messages")
+    private val messagesMetadataRoot = messagesRoot.document("metadata")
+
     private val usersRoot = dbMapper.getDatabase(dbName)
             .collection("all_users")
     private val tokensRoot = dbMapper.getDatabase(dbName)
             .collection("tokens")
+    private val usersMetadataRoot = dbMapper.getDatabase(dbName)
+            .collection("users_metadata")
+
     private val channelsRoot = dbMapper.getDatabase(dbName)
             .collection("all_channels")
-    private val usersMetadataRoot = dbMapper.getDatabase("course_app_database")
-            .collection("users_metadata")
 
     fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
         return tokenToUser(token)
@@ -144,6 +148,16 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
         TODO()
     }
 
+    fun pendingMessages(): CompletableFuture<Long> {
+        return messagesMetadataRoot.read("pending_messages_count")
+                .thenApply { it?.toLong() ?: 0 }
+    }
+
+    fun channelMessages(): CompletableFuture<Long> {
+        return messagesMetadataRoot.read("channels_pending_messages_count")
+                .thenApply { it?.toLong() ?: 0 }
+    }
+
     /**
      * Invokes the callback for all broadcast, channel & private messages that the user *hasn't read*
      */
@@ -193,18 +207,22 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                     msgsDoc, callback, msgsList, lastIdRead, index + 1, currentMax)
 
         // user should read this message
-        val pendingMessage = msgsList[index]
-        return callback(pendingMessage.sender!!, pendingMessage)
+        return callback(msgsList[index].sender!!, msgsList[index])
                 .thenApply {
-                    if (pendingMessage.isDonePending()) {
-                        msgsList.removeAt(index)
-                        true
-                    } else {
-                        false
+                    msgsList[index].usersCount -= 1
+                    val isChannelMessage = msgsList[index].sender!![0] == '#'
+                    if (msgsList[index].isDonePending() && !isChannelMessage) {
+                        // remove message
+                        updateMessagesCount(msgsList[index].sender!!, -1)
+                                .thenApply {
+                                    msgsList.removeAt(index)
+                                }
                     }
+                }.thenApply {
+                    msgsList[index].isDonePending() && msgsList[index].sender!![0] != '#'
                 }.thenCompose { toRewrite ->
                     val nextIndex = if (toRewrite) index else index + 1
-                    val nextMax = maxOf(currentMax, pendingMessage.id)
+                    val nextMax = maxOf(currentMax, msgsList[index].id)
                     tryReadingListOfMessagesAux(msgsDoc, callback, msgsList, lastIdRead, nextIndex, nextMax)
                 }
     }
@@ -278,12 +296,54 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
-    private fun invokeUserCallbacks(username: String, message: MessageImpl, index: Int = 0): CompletableFuture<Unit> {
+    private fun tryDeleteMessage(username: String, message: MessageImpl): CompletableFuture<Unit> {
+        if (!message.isDonePending() && message.sender!![0] != '#') {
+            return CompletableFuture.completedFuture(Unit)
+        }
+        // need to delete message - check whether message was sent as a *broadcast* or *privately*
+
+        // assume broadcast message and change if necessary
+        var messageDoc = messagesRoot.document("broadcast_message")
+        if (message.sender!![0] == '@')
+        // private message
+            messageDoc = usersRoot.document(username)
+        return messageDoc.readList("messages")
+                .thenApply { deserializeToMessagesList(it) }
+                .thenApply { removeMessageById(it, message.id) }
+                .thenApply { serializeMessagesList(it) }
+                .thenCompose { updatedMsgsList ->
+                    messageDoc.set("messages", updatedMsgsList)
+                            .update()
+                }.thenCompose {
+                    updateMessagesCount(message.sender!!, -1)
+                }
+    }
+
+    private fun removeMessageById(msgsList: MutableList<MessageImpl>, msgId: Long): MutableList<MessageImpl> {
+        return msgsList.asSequence()
+                .filter { it.id != msgId }
+                .toMutableList()
+    }
+
+    private fun invokeUserCallbacks(username: String, message: MessageImpl): CompletableFuture<Unit> {
         val userCallbacks = messageListeners[username]
-        if (userCallbacks == null || userCallbacks.size <= index)
+        if (userCallbacks == null || userCallbacks.isEmpty())
+            return CompletableFuture.completedFuture(Unit)
+        message.received = LocalDateTime.now()
+        message.usersCount -= 1
+        return invokeUserCallbacksAux(userCallbacks, username, message)
+                .thenCompose {
+                    tryDeleteMessage(username, message)
+                }
+    }
+
+    private fun invokeUserCallbacksAux(userCallbacks: List<ListenerCallback>, username: String, message: MessageImpl,
+                                       index: Int = 0): CompletableFuture<Unit> {
+        if (userCallbacks.size <= index)
             return CompletableFuture.completedFuture(Unit)
         return userCallbacks[index](message.sender!!, message)
-                .thenCompose { invokeUserCallbacks(username, message, index + 1) }
+                .thenCompose { invokeUserCallbacksAux(userCallbacks, username, message, index + 1) }
+
     }
 
     private fun uploadMessage(messageToSend: MessageImpl, messageDoc: DocumentReference): CompletableFuture<Unit> {
@@ -294,6 +354,24 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                     msgsList
                 }.thenCompose { msgsList ->
                     messageDoc.set("messages", serializeMessagesList(msgsList))
+                            .update()
+                }.thenCompose {
+                    updateMessagesCount(messageToSend.sender!!)
+                }
+    }
+
+    private fun updateMessagesCount(sender: String, change: Int = 1): CompletableFuture<Unit> {
+        if (sender[0] == '#' && change == 1)
+        // channel send
+            return channelMessages()
+                    .thenCompose {
+                        messagesMetadataRoot.set(Pair("channels_pending_messages_count", (it + change).toString()))
+                                .update()
+                    }
+        // broadcast / private send OR delete
+        return pendingMessages()
+                .thenCompose {
+                    messagesMetadataRoot.set(Pair("pending_messages_count", (it + change).toString()))
                             .update()
                 }
     }

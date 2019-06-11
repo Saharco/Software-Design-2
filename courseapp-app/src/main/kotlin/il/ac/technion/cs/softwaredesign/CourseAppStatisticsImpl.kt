@@ -3,6 +3,7 @@ package il.ac.technion.cs.softwaredesign
 import com.google.inject.Inject
 import il.ac.technion.cs.softwaredesign.managers.database.AuthenticationManager
 import il.ac.technion.cs.softwaredesign.managers.database.ChannelsManager
+import il.ac.technion.cs.softwaredesign.managers.database.MessagesManager
 import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 import java.util.concurrent.CompletableFuture
 
@@ -14,6 +15,7 @@ class CourseAppStatisticsImpl @Inject constructor(dbMapper: DatabaseMapper) : Co
 
     private val auth = AuthenticationManager(dbMapper)
     private val channelsManager = ChannelsManager(dbMapper)
+    private val messagesManager = MessagesManager(dbMapper)
 
     override fun totalUsers(): CompletableFuture<Long> {
         return auth.getTotalUsers()
@@ -24,11 +26,11 @@ class CourseAppStatisticsImpl @Inject constructor(dbMapper: DatabaseMapper) : Co
     }
 
     override fun pendingMessages(): CompletableFuture<Long> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.pendingMessages()
     }
 
     override fun channelMessages(): CompletableFuture<Long> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return messagesManager.channelMessages()
     }
 
     override fun top10ChannelsByUsers(): CompletableFuture<List<String>> {

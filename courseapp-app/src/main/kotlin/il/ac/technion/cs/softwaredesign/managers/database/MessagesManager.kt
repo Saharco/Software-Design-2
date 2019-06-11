@@ -203,7 +203,6 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     fun topKChannelsByMessages(k: Int = 10): CompletableFuture<List<String>> {
-        //FIXME
         return CompletableFuture.completedFuture(treeTopK(channelsByMessagesStorage, k))
     }
 

@@ -25,7 +25,6 @@ class CourseAppMessagesTest {
         injector.getInstance<CourseAppInitializer>().setup().join()
     }
 
-
     @Test
     internal fun `trying to attach a listener with an invalid token throws InvalidTokenException`() {
         val listener = mockk<ListenerCallback>()

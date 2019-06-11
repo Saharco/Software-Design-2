@@ -170,22 +170,16 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     }
 
     fun topKChannelsByUsers(k: Int = 10): CompletableFuture<List<String>> {
-        //FIXME
-//        return treeTopK(channelsByUsers, k)
         return CompletableFuture.completedFuture(treeTopK(channelsByUsersStorage, k))
     }
 
 
     fun topKChannelsByActiveUsers(k: Int = 10): CompletableFuture<List<String>> {
-        //FIXME
-//        return treeTopK(channelsByActiveUsers, k)
         return CompletableFuture.completedFuture(treeTopK(channelsByActiveUsersStorage, k))
     }
 
 
     fun topKUsersByChannels(k: Int = 10): CompletableFuture<List<String>> {
-        //FIXME
-//        return treeTopK(usersByChannels, k)
         return CompletableFuture.completedFuture(treeTopK(usersByChannelsStorage, k))
     }
 
@@ -325,8 +319,8 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      *
      */
     private fun expelChannelMember(username: String, channel: String): CompletableFuture<Unit> {
-        return removeChannelFromUserList(username, channel)
-                .thenCompose { removeOperatorFromChannel(channel, username) }
+        return removeOperatorFromChannel(channel, username)
+                .thenCompose { removeChannelFromUserList(username, channel) }
                 .thenCompose { userChannelsCount ->
                     updateChannelUsersCount(channel, change = -1)
                             .thenApply { totalUsers -> Pair(userChannelsCount, totalUsers) }
@@ -370,7 +364,6 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                                     Triple(pair.first, pair.second, channelOnlineUsers)
                             }
                 }.thenApply { triple ->
-                    //FIXME - trees should also work with futures
                     updateTree(channelsByUsersStorage, channel, channelTotalUsers, channelTotalUsers + 1,
                             triple.first, channelTotalUsers <= 0)
                     updateTree(channelsByActiveUsersStorage, channel, channelOnlineUsers, triple.third, triple.first)
@@ -395,7 +388,6 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                                 Pair(channelCreationCounter, userCreationCounter?.toInt() ?: 0)
                             }
                 }.thenApply { pair ->
-                    //FIXME - trees should also work with futures
                     updateTree(channelsByUsersStorage, channel, channelTotalUsers, channelTotalUsers - 1,
                             pair.first)
                     updateTree(channelsByActiveUsersStorage, channel, channelOnlineUsers,

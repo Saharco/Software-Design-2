@@ -257,22 +257,10 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
 
         // user should read this message
         return callback(msgsList[index].sender!!, msgsList[index])
-                .thenApply {
-                    msgsList[index].usersCount -= 1
-                    val isChannelMessage = msgsList[index].sender!![0] == '#'
-                    if (msgsList[index].isDonePending() && !isChannelMessage) {
-                        // remove message
-                        updateMessagesCount(msgsList[index].sender!!, -1)
-                                .thenApply {
-                                    msgsList.removeAt(index)
-                                }
-                    }
-                }.thenApply {
-                    msgsList[index].isDonePending() && msgsList[index].sender!![0] != '#'
-                }.thenCompose { toRewrite ->
-                    val nextIndex = if (toRewrite) index else index + 1
+                .thenApply { msgsList[index].usersCount = 1 }
+                .thenCompose {
                     val nextMax = maxOf(currentMax, msgsList[index].id)
-                    tryReadingListOfMessagesAux(msgsDoc, callback, msgsList, lastIdRead, nextIndex, nextMax)
+                    tryReadingListOfMessagesAux(msgsDoc, callback, msgsList, lastIdRead, index + 1, nextMax)
                 }
     }
 
@@ -346,7 +334,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     private fun tryDeleteMessage(username: String, message: MessageImpl): CompletableFuture<Unit> {
-        if (!message.isDonePending() && message.sender!![0] != '#') {
+        if (!message.isDonePending() || message.sender!![0] == '#') {
             return CompletableFuture.completedFuture(Unit)
         }
         // need to delete message - check whether message was sent as a *broadcast* or *privately*

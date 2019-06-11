@@ -118,7 +118,7 @@ class AVLTree(private val storage: SecureStorage) {
             collection.add(right)
             collection.add(height)
             val json = gson.toJson(collection)
-            storage.write(key, json.toByteArray(charset)).join()
+            storage.write(key, json.toByteArray(charset)).get()
         }
 
         companion object {
@@ -132,7 +132,7 @@ class AVLTree(private val storage: SecureStorage) {
                 if (key == null) {
                     return null
                 }
-                val storageResult = storage.read(key).join() ?: return null
+                val storageResult = storage.read(key).get() ?: return null
                 val parser = JsonParser()
                 val array = parser.parse(storageResult.toString(charset)).asJsonArray
                 val readKey = gson.fromJson(array.get(0), ByteArray::class.java)
@@ -163,7 +163,7 @@ class AVLTree(private val storage: SecureStorage) {
      * initializes the tree by reading a special key "node" which stores a root reference.
      */
     init {
-        val rootJson = storage.read("root".toByteArray(charset)).join()
+        val rootJson = storage.read("root".toByteArray(charset)).get()
         if (rootJson == null) {
             root = null
         } else {
@@ -190,7 +190,7 @@ class AVLTree(private val storage: SecureStorage) {
      */
     fun insert(key: ByteArray, value: ByteArray) {
         root = AVLNode.read(storage, gson, insert(key, value, root))
-        storage.write("root".toByteArray(charset), root!!.key).join()
+        storage.write("root".toByteArray(charset), root!!.key).get()
     }
 
     /**

@@ -19,15 +19,14 @@ class CourseAppDatabaseTest {
 
     @Test
     internal fun `single field write in a document is properly read after document is written`() {
-        dbFactory.open("root").join()
-                .collection("programming languages")
+        val db = dbFactory.open("root").join()
+        db.collection("programming languages")
                 .document("kotlin")
                 .set(Pair("isCool", "true"))
                 .write()
                 .join()
 
-        val result = dbFactory.open("root").join()
-                .collection("programming languages")
+        val result = db.collection("programming languages")
                 .document("kotlin")
                 .read("isCool")
                 .join()

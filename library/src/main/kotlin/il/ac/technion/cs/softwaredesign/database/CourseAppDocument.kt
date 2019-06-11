@@ -12,9 +12,12 @@ import java.util.concurrent.CompletableFuture
  *
  * This class is abstract - it can only be constructed via [CourseAppCollection]
  */
-private val logger = KotlinLogging.logger {}
 abstract class CourseAppDocument internal constructor(path: String, val storage: SecureStorage)
     : DocumentReference {
+
+    companion object {
+        private val logger = KotlinLogging.logger {}
+    }
 
     protected val path: String = "$path/"
     private var data: HashMap<String, String> = HashMap()

@@ -3,6 +3,7 @@ package il.ac.technion.cs.softwaredesign
 import com.authzee.kotlinguice4.KotlinModule
 import com.google.inject.Provides
 import com.google.inject.Singleton
+import il.ac.technion.cs.softwaredesign.database.CachedStorage
 import il.ac.technion.cs.softwaredesign.database.CourseAppDatabaseFactory
 import il.ac.technion.cs.softwaredesign.database.Database
 import il.ac.technion.cs.softwaredesign.messages.Message
@@ -43,7 +44,7 @@ class CourseAppModule : KotlinModule() {
     @Singleton
     fun dbMapperProvider(): DatabaseMapper {
         val dbMap = mutableMapOf<String, CompletableFuture<Database>>()
-        val storageMap = mutableMapOf<String, CompletableFuture<SecureStorage>>()
+        val storageMap = mutableMapOf<String, CompletableFuture<CachedStorage>>()
 
         mapNewDatabase(dbMap, "course_app_database")
 
@@ -58,7 +59,8 @@ class CourseAppModule : KotlinModule() {
         dbMap[dbName] = dbFactory.open(dbName)
     }
 
-    private fun mapNewStorage(storageMap: MutableMap<String, CompletableFuture<SecureStorage>>, storageName: String) {
-        storageMap[storageName] = factory.open(storageName.toByteArray())
+    private fun mapNewStorage(storageMap: MutableMap<String, CompletableFuture<CachedStorage>>, storageName: String) {
+        storageMap[storageName] =
+                factory.open(storageName.toByteArray()).thenApply { storage -> CachedStorage(storage) }
     }
 }

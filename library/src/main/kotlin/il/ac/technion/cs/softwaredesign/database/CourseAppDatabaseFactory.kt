@@ -12,6 +12,6 @@ import java.util.concurrent.CompletableFuture
 class CourseAppDatabaseFactory(private val storageFactory: SecureStorageFactory) : DatabaseFactory {
     override fun open(dbName: String): CompletableFuture<Database> {
         return storageFactory.open(dbName.toByteArray())
-                .map { db -> CourseAppDatabase(db) }
+                .map { storage -> CourseAppDatabase(CachedStorage(storage)) }
     }
 }

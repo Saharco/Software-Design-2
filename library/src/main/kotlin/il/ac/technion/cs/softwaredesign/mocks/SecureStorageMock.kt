@@ -10,7 +10,9 @@ class SecureStorageMock : SecureStorage {
     private val charset = charset("UTF-8")
 
     override fun read(key: ByteArray): CompletableFuture<ByteArray?> {
-        return CompletableFuture.supplyAsync { db[key.toString(charset)]?.toByteArray() }
+        val value =  db[key.toString(charset)]?.toByteArray()
+        Thread.sleep(value?.size?.toLong() ?: 0)
+        return CompletableFuture.supplyAsync { value }
     }
 
     override fun write(key: ByteArray, value: ByteArray): CompletableFuture<Unit> {

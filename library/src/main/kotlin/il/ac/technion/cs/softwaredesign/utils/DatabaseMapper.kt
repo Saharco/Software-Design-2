@@ -1,7 +1,7 @@
 package il.ac.technion.cs.softwaredesign.utils
 
+import il.ac.technion.cs.softwaredesign.database.CachedStorage
 import il.ac.technion.cs.softwaredesign.database.Database
-import il.ac.technion.cs.softwaredesign.storage.SecureStorage
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -10,13 +10,13 @@ import java.util.concurrent.CompletableFuture
  * @param storageMap: String->SecureStorage map
  */
 class DatabaseMapper(private val dbMap: Map<String, CompletableFuture<Database>>,
-                     private val storageMap: Map<String, CompletableFuture<SecureStorage>>) {
+                     private val storageMap: Map<String, CompletableFuture<CachedStorage>>) {
 
     fun getDatabase(dbName: String): Database {
         return dbMap.getValue(dbName).get()
     }
 
-    fun getStorage(storageName: String): SecureStorage {
+    fun getStorage(storageName: String): CachedStorage {
         return storageMap.getValue(storageName).get()
     }
 }

@@ -47,7 +47,6 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
      * updates trees
      */
     fun channelJoin(token: String, channel: String): CompletableFuture<Unit> {
-
         return tokenToUser(token)
                 .thenApply { tokenUsername ->
                     if (!validChannelName(channel))
@@ -213,7 +212,6 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                                         throw UserNotAuthorizedException("only an administrator may create a new channel")
                                 }.thenCompose {
                                     // creation of new channel
-
                                     metadataDocument.read("creation_counter")
                                             .thenApply { oldCreationCounter ->
                                                 oldCreationCounter?.toInt()?.plus(1) ?: 1

@@ -64,10 +64,12 @@ class CourseAppStatisticsTest {
         val list1 = statistics.top10ChannelsByUsers().join()
         val list2 = statistics.top10ActiveChannelsByUsers().join()
         val list3 = statistics.top10UsersByChannels().join()
+        val list4 = statistics.top10ChannelsByMessages().join()
 
         assertEquals(0, list1.size)
         assertEquals(0, list2.size)
         assertEquals(0, list3.size)
+        assertEquals(0, list4.size)
     }
 
     @Test
@@ -137,5 +139,20 @@ class CourseAppStatisticsTest {
         // leave channels with some portion of users & check correctness
         app.leaveRandomChannels(users, channels)
         verifyQueriesCorrectness(statistics, users, channels)
+    }
+
+    @Test
+    internal fun `can query pending messages when there are no pending messages`() {
+        assertEquals(0, statistics.pendingMessages().join())
+    }
+
+    @Test
+    internal fun `can query channel messages when there are no channel messages`() {
+        assertEquals(0, statistics.channelMessages().join())
+    }
+
+    @Test
+    internal fun `top 10 channels by messages does secondary sort by creation time`() {
+
     }
 }

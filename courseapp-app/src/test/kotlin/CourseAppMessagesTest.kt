@@ -3,6 +3,7 @@ import com.google.inject.Guice
 import il.ac.technion.cs.softwaredesign.*
 import il.ac.technion.cs.softwaredesign.exceptions.InvalidTokenException
 import il.ac.technion.cs.softwaredesign.exceptions.NoSuchEntityException
+import il.ac.technion.cs.softwaredesign.exceptions.UserNotAuthorizedException
 import il.ac.technion.cs.softwaredesign.messages.MediaType
 import il.ac.technion.cs.softwaredesign.messages.MessageFactory
 import il.ac.technion.cs.softwaredesign.storage.SecureStorageModule
@@ -106,8 +107,10 @@ class CourseAppMessagesTest {
                 }.join()
 
         assertEquals(0, statistics.pendingMessages().join())
+        assertEquals(0, statistics.channelMessages().join())
         app.channelSend(adminToken, "#TakeCare", message).join()
         assertEquals(0, statistics.pendingMessages().join())
+        assertEquals(1, statistics.channelMessages().join())
 
         verify {
             listener1(match { it == "#TakeCare@Admin" },
@@ -346,7 +349,7 @@ class CourseAppMessagesTest {
         assertThrows<NoSuchEntityException> {
             app.login("admin", "a very strong password")
                     .thenCompose { adminToken ->
-                        messageFactory.create(MediaType.TEXT, "I wont die!".toByteArray())
+                        messageFactory.create(MediaType.TEXT, "Bad Message".toByteArray())
                                 .thenCompose { message ->
                                     app.channelSend(adminToken, "#TakeCare", message)
                                 }
@@ -357,31 +360,131 @@ class CourseAppMessagesTest {
 
     @Test
     internal fun `trying to send a message to a channel that the user is not a member of should throw UserNotAuthorizedException`() {
-        
+        assertThrows<UserNotAuthorizedException> {
+            app.login("admin", "a very strong password")
+                    .thenCompose { adminToken ->
+                        app.channelJoin(adminToken, "#TakeCare")
+                                .thenCompose {
+                                    app.login("Sahar", "mc not admin")
+                                            .thenCompose { nonAdminToken ->
+                                                messageFactory.create(MediaType.TEXT, "Bad Message".toByteArray())
+                                                        .thenCompose { message ->
+                                                            app.channelSend(nonAdminToken, "#TakeCare", message)
+                                                        }
+                                            }
+                                }
+                    }.joinException()
+        }
     }
 
     @Test
     internal fun `trying to send a broadcast message without admin privileges should throw UserNotAuthorizedException`() {
-
+        assertThrows<UserNotAuthorizedException> {
+            app.login("admin", "a very strong password")
+                    .thenCompose {
+                        app.login("Sahar", "a very weak password")
+                                .thenCompose { nonAdminToken ->
+                                    messageFactory.create(MediaType.TEXT, "Bad Message".toByteArray())
+                                            .thenCompose { message ->
+                                                app.broadcast(nonAdminToken, message)
+                                            }
+                                }
+                    }.joinException()
+        }
     }
 
     @Test
-    internal fun `user can read a channel message that predates them joining the channel`() {
+    internal fun `channel member can fetch a channel message`() {
+        val (adminToken, nonAdminToken) = app.login("admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.join()
+        val messageId = app.channelJoin(adminToken, "#TakeCare").thenCompose {
+            app.channelJoin(nonAdminToken, "#TakeCare")
+                    .thenCompose {
+                        messageFactory.create(MediaType.LOCATION, "Netanya".toByteArray())
+                                .thenCompose { message ->
+                                    app.channelSend(adminToken, "#TakeCare", message)
+                                            .thenApply { message.id }
+                                }
+                    }
+        }.join()
 
+        val (sender, message) = app.fetchMessage(nonAdminToken, messageId).join()
+        assertEquals("#TakeCare@admin", sender)
+        assertEquals("Netanya", String(message.contents))
+        assertEquals(MediaType.LOCATION, message.media)
+    }
+
+    @Test
+    internal fun `user can fetch a channel message that predates them joining the channel`() {
+        val (adminToken, nonAdminToken) = app.login("admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.join()
+
+        val messageId = app.channelJoin(adminToken, "#TakeCare")
+                .thenCompose {
+                    messageFactory.create(MediaType.TEXT, "ping -t 8.8.8.8".toByteArray())
+                            .thenCompose { message ->
+                                app.channelSend(adminToken, "#TakeCare", message)
+                                        .thenApply { message.id }
+                            }
+                }.join()
+
+        app.channelJoin(nonAdminToken, "#TakeCare").join()
+
+        val (sender, message) = app.fetchMessage(nonAdminToken, messageId).join()
+        assertEquals("#TakeCare@admin", sender)
+        assertEquals("ping -t 8.8.8.8", String(message.contents))
     }
 
     @Test
     internal fun `trying to fetch a channel message that does not exist should throw NoSuchEntityException`() {
+        val adminToken = app.login("admin", "a very strong password").join()
+        app.channelJoin(adminToken, "#TakeCare").join()
 
+        assertThrows<NoSuchEntityException> {
+            app.fetchMessage(adminToken, 1).joinException()
+        }
     }
 
     @Test
     internal fun `trying to fetch a channel message that is actually a different type of message should throw NoSuchEntityException`() {
+        val adminToken = app.login("admin", "a very strong password").join()
+        val messageId = app.channelJoin(adminToken, "#TakeCare").thenCompose {
+            messageFactory.create(MediaType.TEXT, "ATTENTION ALL EPIC GAMERS!".toByteArray())
+                    .thenCompose { message ->
+                        app.broadcast(adminToken, message)
+                                .thenApply { message.id }
+                    }
+        }.join()
 
+        assertThrows<NoSuchEntityException> {
+            app.fetchMessage(adminToken, messageId).joinException()
+        }
     }
 
     @Test
     internal fun `trying to fetch a channel message from a channel that the user is not a member of should throw UserNotAuthorizedException`() {
+        val (adminToken, nonAdminToken) = app.login("admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.join()
 
+        val messageId = app.channelJoin(adminToken, "#TakeCare").thenCompose {
+            messageFactory.create(MediaType.TEXT, "ATTENTION ALL EPIC TakeCares!".toByteArray())
+                    .thenCompose { message ->
+                        app.channelSend(adminToken, "#TakeCare", message)
+                                .thenApply { message.id }
+                    }
+        }.join()
+
+        assertThrows<UserNotAuthorizedException> {
+            app.fetchMessage(nonAdminToken, messageId).joinException()
+        }
     }
 }

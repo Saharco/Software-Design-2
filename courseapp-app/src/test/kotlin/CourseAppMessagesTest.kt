@@ -77,6 +77,7 @@ class CourseAppMessagesTest {
 
         val listener2 = mockk<ListenerCallback>()
         every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
         val (adminToken, message) = app.login("Admin", "a very strong password")
                 .thenCompose { adminToken ->
                     app.channelJoin(adminToken, "#TakeCare")
@@ -199,34 +200,164 @@ class CourseAppMessagesTest {
     }
 
     @Test
-    internal fun `user listener is called when attached after a channel message was sent`() {
+    internal fun `user listeners are called when attached after a channel message was sent`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
 
+        val listener2 = mockk<ListenerCallback>()
+        every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val adminToken = app.login("admin", "123456").join()
+        val otherToken1 = app.login("Sahar", "a very strong password").join()
+        val otherToken2 = app.login("Yuval", "a very weak password").join()
+        val message = app.channelJoin(adminToken, "#TakeCare")
+                .thenCompose {
+                    app.channelJoin(otherToken1, "#TakeCare")
+                }.thenCompose {
+                    app.channelJoin(otherToken2, "#TakeCare")
+                }.thenCompose {
+                    messageFactory.create(MediaType.TEXT, "take care guys ;)".toByteArray())
+                }.join()
+
+        app.channelSend(adminToken, "#TakeCare", message).join()
+
+        assertEquals(1, statistics.channelMessages().join())
+
+        app.addListener(otherToken1, listener1).thenCompose {
+            app.addListener(otherToken2, listener2)
+        }.join()
+
+        verify {
+            listener1(match { it == "#TakeCare@admin" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
+
+        verify {
+            listener2(match { it == "#TakeCare@admin" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
     }
-
 
     @Test
     internal fun `user listener is called when attached after a broadcast message was sent`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
 
+        val listener2 = mockk<ListenerCallback>()
+        every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val listener3 = mockk<ListenerCallback>()
+        every { listener3(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val adminToken = app.login("admin", "123456").join()
+        val otherToken1 = app.login("Sahar", "a very strong password").join()
+        val otherToken2 = app.login("Yuval", "a very weak password").join()
+        val message = messageFactory.create(MediaType.TEXT, "take care guys ;)".toByteArray()).join()
+
+        app.broadcast(adminToken, message).join()
+
+        assertEquals(1, statistics.pendingMessages().join())
+
+        app.addListener(otherToken1, listener1).thenCompose {
+            app.addListener(otherToken2, listener2)
+        }.thenCompose {
+            app.addListener(adminToken, listener3)
+        }.join()
+
+        verify {
+            listener1(match { it == "BROADCAST" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
+
+        verify {
+            listener2(match { it == "BROADCAST" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
     }
 
     @Test
     internal fun `broadcast message is pending until all users have received it`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
 
+        val listener2 = mockk<ListenerCallback>()
+        every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val listener3 = mockk<ListenerCallback>()
+        every { listener3(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val adminToken = app.login("admin", "123456").join()
+        val otherToken1 = app.login("Sahar", "a very strong password").join()
+        val otherToken2 = app.login("Yuval", "a very weak password").join()
+        val message = messageFactory.create(MediaType.TEXT, "take care guys ;)".toByteArray()).join()
+
+        app.broadcast(adminToken, message).join()
+        assertEquals(1, statistics.pendingMessages().join())
+
+        app.addListener(otherToken1, listener1).join()
+        verify {
+            listener1(match { it == "BROADCAST" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
+        assertEquals(1, statistics.pendingMessages().join())
+
+        app.addListener(otherToken2, listener2).join()
+        verify {
+            listener1(match { it == "BROADCAST" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
+        assertEquals(1, statistics.pendingMessages().join())
+
+        // admin must listen to this message too!!
+        app.addListener(adminToken, listener3).join()
+        verify {
+            listener1(match { it == "BROADCAST" },
+                    match { it.contents contentEquals "take care guys ;)".toByteArray() })
+        }
+
+        assertEquals(0, statistics.pendingMessages().join())
     }
 
     @Test
     internal fun `channel message is never removed`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
 
+        assertEquals(0, statistics.channelMessages().join())
+        app.login("admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.addListener(adminToken, listener1)
+                            .thenCompose {
+                                app.channelJoin(adminToken, "#TakeCare")
+                                        .thenCompose {
+                                            messageFactory.create(MediaType.TEXT, "I wont die!".toByteArray())
+                                                    .thenCompose { message ->
+                                                        app.channelSend(adminToken, "#TakeCare", message)
+                                                    }
+                                        }
+                            }
+                }.join()
+
+        assertEquals(1, statistics.channelMessages().join())
     }
 
     @Test
     internal fun `trying to send a message to a channel that does not exist should throw NoSuchEntityException`() {
+        assertThrows<NoSuchEntityException> {
+            app.login("admin", "a very strong password")
+                    .thenCompose { adminToken ->
+                        messageFactory.create(MediaType.TEXT, "I wont die!".toByteArray())
+                                .thenCompose { message ->
+                                    app.channelSend(adminToken, "#TakeCare", message)
+                                }
 
+                    }.joinException()
+        }
     }
 
     @Test
     internal fun `trying to send a message to a channel that the user is not a member of should throw UserNotAuthorizedException`() {
-
+        
     }
 
     @Test

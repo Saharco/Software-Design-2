@@ -1,20 +1,25 @@
+import com.authzee.kotlinguice4.getInstance
+import com.google.inject.Guice
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import il.ac.technion.cs.softwaredesign.database.CourseAppDatabaseFactory
 import il.ac.technion.cs.softwaredesign.mocks.SecureStorageFactoryMock
+import il.ac.technion.cs.softwaredesign.storage.SecureStorageFactory
 import java.lang.IllegalArgumentException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 
 class CourseAppDatabaseTest {
-    private var storageFactory = SecureStorageFactoryMock()
+
+    private val injector = Guice.createInjector(LibraryTestModule())
+    private var storageFactory = injector.getInstance<SecureStorageFactory>()
     private val dbFactory = CourseAppDatabaseFactory(storageFactory)
 
     @BeforeEach
     internal fun resetDatabase() {
-        storageFactory = SecureStorageFactoryMock()
+        storageFactory = injector.getInstance<SecureStorageFactory>()
     }
 
     @Test

@@ -19,7 +19,7 @@ import java.util.concurrent.CompletableFuture
 
 class CourseAppMessagesTest {
 
-    private val injector = Guice.createInjector(CourseAppModule(), SecureStorageModule())
+    private val injector = Guice.createInjector(CourseAppTestModule())
     private val messageFactory = injector.getInstance<MessageFactory>()
     private val app = injector.getInstance<CourseApp>()
     private val statistics = injector.getInstance<CourseAppStatistics>()

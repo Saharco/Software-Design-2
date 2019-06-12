@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 
 class CourseAppStatisticsTest {
-    private val injector = Guice.createInjector(CourseAppModule(), SecureStorageModule())
+    private val injector = Guice.createInjector(CourseAppTestModule())
     private val courseAppInitializer = injector.getInstance<CourseAppInitializer>()
     private val messageFactory = injector.getInstance<MessageFactory>()
     private val app = injector.getInstance<CourseApp>()

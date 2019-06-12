@@ -11,7 +11,7 @@ import org.junit.jupiter.api.assertThrows
 
 class CourseAppChannelsTest {
 
-    private val injector = Guice.createInjector(CourseAppModule(), SecureStorageModule())
+    private val injector = Guice.createInjector(CourseAppTestModule())
     private val courseAppInitializer = injector.getInstance<CourseAppInitializer>()
 
     init {

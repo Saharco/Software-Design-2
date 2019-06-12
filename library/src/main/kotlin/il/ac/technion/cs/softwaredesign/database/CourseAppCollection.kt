@@ -8,7 +8,7 @@ import il.ac.technion.cs.softwaredesign.utils.Hasher
  *
  * This class is abstract - it can only be constructed via [Database] or [ExtendableDocumentReference]
  */
-abstract class CourseAppCollection internal constructor(path: String, val storage: SecureStorage)
+abstract class CourseAppCollection internal constructor(path: String, private val storage: SecureStorage)
     : CollectionReference {
     private val path: String = "$path/"
 

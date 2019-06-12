@@ -6,7 +6,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Implementation of [DatabaseFactory].
- *
  * This class produces new [CourseAppDatabase] instances
  */
 class CourseAppDatabaseFactory(private val storageFactory: SecureStorageFactory) : DatabaseFactory {

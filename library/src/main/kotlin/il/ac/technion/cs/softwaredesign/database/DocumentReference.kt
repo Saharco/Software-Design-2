@@ -39,11 +39,14 @@ interface DocumentReference {
      * Write the document to the database.
      *
      * This is a *terminal* operation
+     *
+     * @throws IllegalStateException if the document to be written contains no information
+     * @throws IllegalArgumentException if the document to be written already exists
      */
     fun write(): CompletableFuture<Unit>
 
     /**
-     * Reads a document's field from the database.
+     * Reads a document's field from the database, or null if it does not exist
      *
      * This is a *terminal* operation
      *
@@ -53,7 +56,7 @@ interface DocumentReference {
 
 
     /**
-     * Reads a document's list field from the database.
+     * Reads a document's list field from the database, or null if it does not exist
      *
      * This is a *terminal* operation
      *
@@ -65,6 +68,8 @@ interface DocumentReference {
      * Update information of a document in the database. This operation may be performed on an existing document
      *
      * This is a *terminal* operation
+     *
+     * @throws IllegalStateException if the document to be updated contains no extra information
      */
     fun update(): CompletableFuture<Unit>
 

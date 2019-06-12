@@ -12,7 +12,7 @@ import java.util.concurrent.CompletableFuture
  *
  * This class is abstract - it can only be constructed via [CourseAppCollection]
  */
-abstract class CourseAppDocument internal constructor(path: String, val storage: SecureStorage)
+abstract class CourseAppDocument internal constructor(path: String, protected val storage: SecureStorage)
     : DocumentReference {
 
     companion object {
@@ -39,12 +39,6 @@ abstract class CourseAppDocument internal constructor(path: String, val storage:
         return this
     }
 
-    /**
-     * @inheritDoc
-     *
-     * @throws IllegalStateException if the document to be written contains no information
-     * @throws IllegalArgumentException if the document to be written already exists
-     */
     override fun write(): CompletableFuture<Unit> {
         if (data.isEmpty())
             return Future { throw IllegalStateException("Can\'t write empty document") }
@@ -69,20 +63,10 @@ abstract class CourseAppDocument internal constructor(path: String, val storage:
         }
     }
 
-    /**
-     * @inheritDoc
-     *
-     * Returns null if the data does not exist in the document
-     */
     override fun read(field: String): CompletableFuture<String?> {
         return readField(field, ::deserializeToString)
     }
 
-    /**
-     * @inheritDoc
-     *
-     * Returns null if the data does not exist in the document
-     */
     override fun readList(field: String): CompletableFuture<List<String>?> {
         return readField(field, ::deserializeToList)
     }
@@ -132,11 +116,6 @@ abstract class CourseAppDocument internal constructor(path: String, val storage:
         return Gson().fromJson(json, collectionType)
     }
 
-    /**
-     * @inheritDoc
-     *
-     * @throws IllegalStateException if the document to be updated contains no extra information
-     */
     override fun update(): CompletableFuture<Unit> {
         if (data.isEmpty())
             return Future { throw IllegalStateException("Can\'t write empty document") }

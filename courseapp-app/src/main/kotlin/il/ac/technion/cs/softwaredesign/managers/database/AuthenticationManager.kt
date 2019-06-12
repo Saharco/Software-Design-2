@@ -24,18 +24,41 @@ import java.util.concurrent.CompletableFuture
  */
 class AuthenticationManager(private val dbMapper: DatabaseMapper) {
 
+    private val dbName = "course_app_database"
 
-    private val usersRoot = dbMapper.getDatabase("course_app_database")
+    private val usersRoot = dbMapper.getDatabase(dbName)
             .collection("all_users")
-    private val tokensRoot = dbMapper.getDatabase("course_app_database")
+    private val tokensRoot = dbMapper.getDatabase(dbName)
             .collection("tokens")
-    private val channelsRoot = dbMapper.getDatabase("course_app_database")
-            .collection("all_channels")
-    private val metadataRoot = dbMapper.getDatabase("course_app_database")
+    private val metadataRoot = dbMapper.getDatabase(dbName)
             .collection("users_metadata")
+
+    private val channelsRoot = dbMapper.getDatabase(dbName)
+            .collection("all_channels")
+
     private val usersByChannelsStorage = dbMapper.getStorage("users_by_channels")
     private val channelsByActiveUsersStorage = dbMapper.getStorage("channels_by_active_users")
 
+    /**
+     * Log in a user identified by [username] and [password], returning an authentication token that can be used in
+     * future calls. If this username did not previously log in to the system, it will be automatically registered with
+     * the provided password. Otherwise, the password will be checked against the previously provided password.
+     *
+     * If this is the first user to be registered, it will be made an administrator.
+     *
+     * This is a *create* command.
+     *
+     * The procedure is:
+     *  verifies that the login is valid,
+     *  generates unique token,
+     *  updates counters: total user, online users, creation counter,
+     *  grants administrator privileges if this is the first user of the system,
+     *  writes user information
+     *
+     * @throws NoSuchEntityException If the password does not match the username.
+     * @throws UserAlreadyLoggedInException If the user is already logged-in.
+     * @return An authentication token to be used in other calls.
+     */
     fun performLogin(username: String, password: String): CompletableFuture<String> {
         val userDocument = usersRoot.document(username)
         return userDocument.read("password").thenApply { storedPassword ->
@@ -67,6 +90,20 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
         }
     }
 
+    /**
+     * Log out the user with this authentication [token]. The [token] will be invalidated and can not be used for future
+     * calls.
+     *
+     * This is a *delete* command.
+     *
+     * The procedure is:
+     *  verifies that the logout is valid,
+     *  decreases online users counter,
+     *  invalidates user token,
+     *  decreases online users counter for every channel that the user is a member of
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     */
     fun performLogout(token: String): CompletableFuture<Unit> {
         val tokenDocument = tokensRoot.document(token)
         return tokenDocument.read("username")
@@ -80,6 +117,17 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Indicate the status of [username] in the application.
+     *
+     * A valid authentication [token] (for *any* user) is required to perform this operation.
+     *
+     * This is a *read* command.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @return True if [username] exists and is logged in, false if it exists and is not logged in, and null if it does
+     * not exist.
+     */
     fun isUserLoggedIn(token: String, username: String): CompletableFuture<Boolean?> {
         return tokensRoot.document(token)
                 .exists()
@@ -102,7 +150,16 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
-
+    /**
+     * Make another user, identified by [username], an administrator. Only users who are administrators may perform this
+     * operation.
+     *
+     * This is an *update* command.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws UserNotAuthorizedException If the auth [token] does not belong to a user who is an administrator.
+     * @throws NoSuchEntityException If [username] does not exist.
+     */
     fun makeAdministrator(token: String, username: String): CompletableFuture<Unit> {
         return tokensRoot.document(token)
                 .read("username")
@@ -126,6 +183,11 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Count the total number of users, both logged-in and logged-out, in the system.
+     *
+     * @return The total number of users.
+     */
     fun getTotalUsers(): CompletableFuture<Long> {
         return metadataRoot.document("users_data")
                 .read("users_count")
@@ -134,6 +196,11 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Count the number of logged-in users in the system.
+     *
+     * @return The number of logged-in users.
+     */
     fun getLoggedInUsers(): CompletableFuture<Long> {
         return metadataRoot.document("users_data")
                 .read("online_users_count")
@@ -217,6 +284,9 @@ class AuthenticationManager(private val dbMapper: DatabaseMapper) {
         }
     }
 
+    /**
+     * Updates the amount of logged in users for all channels in [channels] by [updateCount]
+     */
     private fun updateUserChannels(channels: List<String>, updateCount: Int, index: Int = 0):
             CompletableFuture<Unit> {
         if (channels.size <= index)

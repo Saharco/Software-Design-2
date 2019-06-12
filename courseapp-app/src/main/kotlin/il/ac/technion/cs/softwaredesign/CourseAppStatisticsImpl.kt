@@ -26,11 +26,11 @@ class CourseAppStatisticsImpl @Inject constructor(dbMapper: DatabaseMapper) : Co
     }
 
     override fun pendingMessages(): CompletableFuture<Long> {
-        return messagesManager.pendingMessages()
+        return messagesManager.getPendingMessages()
     }
 
     override fun channelMessages(): CompletableFuture<Long> {
-        return messagesManager.channelMessages()
+        return messagesManager.getChannelMessages()
     }
 
     override fun top10ChannelsByUsers(): CompletableFuture<List<String>> {

@@ -24,13 +24,16 @@ import java.util.concurrent.CompletableFuture
  */
 class ChannelsManager(private val dbMapper: DatabaseMapper) {
 
-    private val usersRoot = dbMapper.getDatabase("course_app_database")
+    private val dbName = "course_app_database"
+
+    private val usersRoot = dbMapper.getDatabase(dbName)
             .collection("all_users")
-    private val tokensRoot = dbMapper.getDatabase("course_app_database")
+    private val tokensRoot = dbMapper.getDatabase(dbName)
             .collection("tokens")
-    private val channelsRoot = dbMapper.getDatabase("course_app_database")
+
+    private val channelsRoot = dbMapper.getDatabase(dbName)
             .collection("all_channels")
-    private val metadataDocument = dbMapper.getDatabase("course_app_database")
+    private val metadataDocument = dbMapper.getDatabase(dbName)
             .collection("channels_metadata").document("channels_data")
 
     private val channelsByUsersStorage = dbMapper.getStorage("channels_by_users")
@@ -38,13 +41,27 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
     private val usersByChannelsStorage = dbMapper.getStorage("users_by_channels")
 
     /**
-     * verifies that the user isn't already a member of the channel,
-     * checks for admin privilege if channel is new,
-     * adds channel to user's channels list,
-     * creates channel if its new,
-     * updates total users of channel,
-     * updates online users of channel,
-     * updates trees
+     * The user identified by [token] will join [channel]. If the channel does not exist, it is created only if [token]
+     * identifies a user who is an administrator.
+     *
+     * Valid names for channels start with `#`, then have any number of English alphanumeric characters, underscores
+     * (`_`) and hashes (`#`).
+     *
+     * This is a *create* command.
+     *
+     * The procedure is:
+     *  verifies that the user isn't already a member of the channel,
+     *  checks for admin privilege if channel is new,
+     *  adds channel to user's channels list,
+     *  creates channel if its new,
+     *  updates total users of channel,
+     *  updates online users of channel,
+     *  updates trees
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NameFormatException If [channel] is not a valid name for a channel.
+     * @throws UserNotAuthorizedException If [channel] does not exist and [token] belongs to a user who is not an
+     * administrator.
      */
     fun channelJoin(token: String, channel: String): CompletableFuture<Unit> {
         return tokenToUser(token)
@@ -80,6 +97,27 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * The user identified by [token] will exit [channel].
+     *
+     * If the last user leaves a channel, the channel will be destroyed and its name will be available for re-use. The
+     * first user to join the channel becomes an operator.
+     *
+     * This is a *delete* command.
+     *
+     * The procedure is:
+     *  verifies that the channel exists and user referenced by [token] is a member of it,
+     *  removes channel from user's channels' list,
+     *  removes operator from channel's operators list if the user is an operator for this channel,
+     *  decreases users count of channel by 1,
+     *  decreases online users count of channel by 1 if user is logged in,
+     *  deletes channel if it is empty,
+     *  updates query trees
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [token] identifies a user who is not a member of [channel], or [channel] does
+     * does exist.
+     */
     fun channelPart(token: String, channel: String): CompletableFuture<Unit> {
         return tokenToUser(token)
                 .thenCompose { tokenUsername ->
@@ -95,6 +133,21 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Make [username] an operator of this channel. Only existing operators of [channel] and administrators are allowed
+     * to make other users operators.
+     *
+     * This is an *update* command.
+     *
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [channel] does not exist.
+     * @throws UserNotAuthorizedException If the user identified by [token] is at least one of the following:
+     * 1. Not an operator of [channel] or an administrator,
+     * 2. An administrator who is not an operator of [channel] and [username] does not match [token],
+     * 3. Not a member of [channel].
+     * @throws NoSuchEntityException If [username] does not exist, or if [username] is not a member of [channel].
+     */
     fun channelMakeOperator(token: String, channel: String, username: String): CompletableFuture<Unit> {
         return tokenToUser(token)
                 .thenCompose { tokenUsername ->
@@ -114,6 +167,25 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Remove the user [username] from [channel]. Only operators of [channel] may perform this operation.
+     *
+     * This is an *update* command.
+     *
+     * The procedure is:
+     *  verifies that the channel exists and user referenced by [token] is an operator of it,
+     *  removes channel from [username]'s channels' list,
+     *  removes operator from channel's operators list if [username] is an operator for this channel,
+     *  decreases users count of channel by 1,
+     *  decreases online users count of channel by 1 if [username] is logged in,
+     *  deletes channel if it is empty,
+     *  updates query trees
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [channel] does not exist.
+     * @throws UserNotAuthorizedException If [token] is not an operator of this channel.
+     * @throws NoSuchEntityException If [username] does not exist, or if [username] is not a member of [channel].
+     */
     fun channelKick(token: String, channel: String, username: String): CompletableFuture<Unit> {
         return tokenToUser(token)
                 .thenCompose { tokenUsername ->
@@ -136,6 +208,17 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Indicate [username]'s membership in [channel]. A user is still a member of a channel when logged off.
+     *
+     * This is a *read* command.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [channel] does not exist.
+     * @throws UserNotAuthorizedException If [token] is not an administrator or member of this channel.
+     * @return True if [username] exists and is a member of [channel], false if it exists and is not a member, and null
+     * if it does not exist.
+     */
     fun isUserInChannel(token: String, channel: String, username: String): CompletableFuture<Boolean?> {
         return verifyValidAndPrivilegedToQuery(token, channel)
                 .thenCompose {
@@ -150,6 +233,19 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Gets the number of logged-in users in a given [channel].
+     *
+     * Administrators can query any channel, while regular users can only query channels that they are members of.
+     *
+     * This is a *read* command.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [channel] does not exist.
+     * @throws UserNotAuthorizedException If [token] identifies a user who is not an administrator and is not a member
+     * of [channel].
+     * @returns Number of logged-in users in [channel].
+     */
     fun numberOfActiveUsersInChannel(token: String, channel: String): CompletableFuture<Long> {
         return verifyValidAndPrivilegedToQuery(token, channel)
                 .thenCompose {
@@ -159,6 +255,19 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Gets the number of users in a given [channel].
+     *
+     * Administrators can query any channel, while regular users can only query channels that they are members of.
+     *
+     * This is a *read* command.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [channel] does not exist.
+     * @throws UserNotAuthorizedException If [token] identifies a user who is not an administrator and is not a member
+     * of [channel].
+     * @return Number of users, both logged-in and logged-out, in [channel].
+     */
     fun numberOfTotalUsersInChannel(token: String, channel: String): CompletableFuture<Long> {
         return verifyValidAndPrivilegedToQuery(token, channel)
                 .thenCompose {
@@ -168,16 +277,49 @@ class ChannelsManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Return a sorted list of the top [k] channels in the system by user count. The list will be sorted in descending
+     * order, so the channel with the highest membership will be first, followed by the second, and so on.
+     *
+     * If two channels have the same number of users, they will be sorted in ascending appearance order, such that a
+     * channel that was created earlier would appear first in the list.
+     *
+     * If there are less than [k] channels in the system, a shorter list will be returned.
+     *
+     * @return A sorted list of channels by user count.
+     */
     fun topKChannelsByUsers(k: Int = 10): CompletableFuture<List<String>> {
         return CompletableFuture.completedFuture(treeTopK(channelsByUsersStorage, k))
     }
 
-
+    /**
+     * Return a sorted list of the top [k] channels in the system by logged-in user count. The list will be sorted in
+     * descending order, so the channel with the highest active membership will be first, followed by the second, and so
+     * on.
+     *
+     * If two channels have the same number of logged-in users, they will be sorted in ascending appearance order, such
+     * that a channel that was created earlier would appear first in the list.
+     *
+     * If there are less than [k] channels in the system, a shorter list will be returned.
+     *
+     * @return A sorted list of channels by logged-in user count.
+     */
     fun topKChannelsByActiveUsers(k: Int = 10): CompletableFuture<List<String>> {
         return CompletableFuture.completedFuture(treeTopK(channelsByActiveUsersStorage, k))
     }
 
-
+    /**
+     * Return a sorted list of the top [k] users in the system by channel membership count. The list will be sorted in
+     * descending order, so the user who is a member of the most channels will be first, followed by the second, and so
+     * on.
+     *
+     * If two users are members of the same number of channels, they will be sorted in ascending appearance order. such
+     * that a user that was created earlier would appear first in the list.
+     *
+     * If there are less than [k] users in the system, a shorter list will be returned.
+     *
+     * @return A sorted list of users by channel count.
+     */
     fun topKUsersByChannels(k: Int = 10): CompletableFuture<List<String>> {
         return CompletableFuture.completedFuture(treeTopK(usersByChannelsStorage, k))
     }

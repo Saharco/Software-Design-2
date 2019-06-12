@@ -44,6 +44,18 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
 
     private val channelsByMessagesStorage = dbMapper.getStorage("channels_by_messages")
 
+    /**
+     * Adds a listener to this MessagesManager instance.
+     *
+     * This is an *update* command.
+     *
+     * The procedure is:
+     *  adds listener to user of [token]'s list of callbacks,
+     *  tries reading any new pending messages for the user -
+     *  @see [tryReadingPendingMessages]
+     *
+     * @throws InvalidTokenException if the auth [token] is invalid.
+     */
     fun addListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
         return tokenToUser(token)
                 .thenApply { tokenUsername ->
@@ -57,6 +69,12 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Remove a listener from this Course App instance.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [callback] is not registered with this instance.
+     */
     fun removeListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
         return tokenToUser(token)
                 .thenApply { tokenUsername ->
@@ -70,6 +88,25 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }.thenApply { }
     }
 
+    /**
+     * Send a message to a channel from the user identified by [token]. Listeners will be notified, source will be
+     * "[channel]@<user>" (including the leading `#`). So, if `gal` sent a message to `#236700`, the source will be
+     * `#236700@gal`.
+     *
+     * This is an *update* command.
+     *
+     * Procedure is:
+     *  verifies that the channel exists and username referenced by [token] is a member of it,
+     *  updates [message] such that the number of users it is pending for will be the amount of users in the channel,
+     *  updates [message]'s sender,
+     *  uploads the message and increases channel message counters,
+     *  invokes any necessary callbacks,
+     *  updates query tree
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [channel] does not exist.
+     * @throws UserNotAuthorizedException If [token] identifies a user who is not a member of [channel].
+     */
     fun channelSend(token: String, channel: String, message: Message): CompletableFuture<Unit> {
         val messageToSend = message as MessageImpl
         return tokenToUser(token)
@@ -120,6 +157,22 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Sends a message to all users from an admin identified by [token]. Listeners will be notified, source is
+     * "BROADCAST".
+     *
+     * This is an *update* command.
+     *
+     * Procedure is:
+     *  verifies that the user referenced by [token] is an admin,
+     *  updates [message] such that the number of users it is pending for will be the total amount of users in the app,
+     *  updates [message]'s sender,
+     *  uploads the message and increases broadcast & pending message counters,
+     *  invokes any necessary callbacks
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws UserNotAuthorizedException If [token] does not identify an administrator.
+     */
     fun broadcast(token: String, message: Message): CompletableFuture<Unit> {
         val messageToSend = message as MessageImpl
         return tokenToUser(token)
@@ -145,6 +198,23 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Sends a private message from the user identified by [token] to [user]. Listeners will be notified, source will be
+     * "@<user>", where <user> is the user identified by [token]. So, if `gal` sent `matan` a message, that source will
+     * be `@gal`.
+     *
+     * This is an *update* command.
+     *
+     * Procedure is:
+     *  verifies that [user] exists,
+     *  updates [message] such that it is pending for exactly one user,
+     *  updates [message]'s sender,
+     *  uploads the message and increases [user]'s pending messages & message counters,
+     *  invokes any necessary callbacks for [user]
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [user] does not exist.
+     */
     fun privateSend(token: String, user: String, message: Message): CompletableFuture<Unit> {
         val messageToSend = message as MessageImpl
         return tokenToUser(token)
@@ -167,6 +237,19 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Returns the message identified by [id], if it exists.
+     *
+     * This method is only useful for messages sent to channels.
+     *
+     * This is a *read* command.
+     *
+     * @throws InvalidTokenException If the auth [token] is invalid.
+     * @throws NoSuchEntityException If [id] does not exist or is not a channel message.
+     * @throws UserNotAuthorizedException If [id] identifies a message in a channel that the user identified by [token]
+     * is not a member of.
+     * @return The message identified by [id] along with its source.
+     */
     fun fetchMessage(token: String, id: Long): CompletableFuture<Pair<String, Message>> {
         return tokenToUser(token)
                 .thenCompose { tokenUsername ->
@@ -195,12 +278,12 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
-    fun pendingMessages(): CompletableFuture<Long> {
+    fun getPendingMessages(): CompletableFuture<Long> {
         return messagesMetadataRoot.read("pending_messages_count")
                 .thenApply { it?.toLong() ?: 0 }
     }
 
-    fun channelMessages(): CompletableFuture<Long> {
+    fun getChannelMessages(): CompletableFuture<Long> {
         return messagesMetadataRoot.read("channels_pending_messages_count")
                 .thenApply { it?.toLong() ?: 0 }
     }
@@ -413,7 +496,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                     tryDeleteMessage(username, message)
                 }
     }
-    
+
     private fun invokeUserCallbacksAux(userCallbacks: List<ListenerCallback>, userChannels: List<String>,
                                        username: String, message: MessageImpl, lastReadId: Long,
                                        index: Int = 0, maxReadMessageId: Long = 0): CompletableFuture<Long> {
@@ -459,13 +542,13 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     private fun updateMessagesCount(sender: String, change: Int = 1): CompletableFuture<Unit> {
         if (sender[0] == '#' && change == 1)
         // channel send
-            return channelMessages()
+            return getChannelMessages()
                     .thenCompose {
                         messagesMetadataRoot.set(Pair("channels_pending_messages_count", (it + change).toString()))
                                 .update()
                     }
         // broadcast / private send OR delete
-        return pendingMessages()
+        return getPendingMessages()
                 .thenCompose {
                     messagesMetadataRoot.set(Pair("pending_messages_count", (it + change).toString()))
                             .update()

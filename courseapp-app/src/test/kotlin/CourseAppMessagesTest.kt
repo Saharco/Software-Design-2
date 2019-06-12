@@ -517,10 +517,8 @@ class CourseAppMessagesTest {
         app.channelJoin(adminToken, "#TakeCare").join()
         messageFactory.create(MediaType.TEXT, "Hello Sus".toByteArray())
                 .thenCompose { app.channelSend(adminToken, "#TakeCare", it) }.join()
-        // message is sent to channel
 
         assertEquals(1, statistics.channelMessages().join())
-        // attach user listener
         app.addListener(nonAdminToken, listener).join()
 
         verify { listener wasNot called }

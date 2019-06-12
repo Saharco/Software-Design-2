@@ -47,9 +47,9 @@ db.collection("users")
 // Many more methods!
 ```
 
-#### Cached Storage
-**CachedStorage** is a wrapper class that implements the *SecureStorage* interface.
-It caches recently written values inside a **LimitedCacheMap** (a HashMap wrapper with limtied capacity), and thus achieves **extremely better performance** on read operations: the value will be read from the map instead of the concrete, slow remote storage instance. Of course, the data is still persistant: written values are written to the remote storage, so the data-store is reboot-proof.
+#### Cached Storage - Much Faster Storage!
+*CachedStorage* is a wrapper class that implements the *SecureStorage* interface.
+It caches recently written values inside a *LimitedCacheMap* (a HashMap wrapper with limtied capacity), and thus achieves **extremely better performance** on read operations: the value will be read from the map instead of the concrete, slow remote storage instance. Of course, the data is still persistant: written values are written to the remote storage, so the data-store is reboot-proof.
 
 #### CourseApp Database Managers
 The database is utilized by the following classes for managing database operations within the app:

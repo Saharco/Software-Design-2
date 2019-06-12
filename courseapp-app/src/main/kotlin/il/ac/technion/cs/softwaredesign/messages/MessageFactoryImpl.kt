@@ -5,6 +5,9 @@ import il.ac.technion.cs.softwaredesign.utils.DatabaseMapper
 import java.time.LocalDateTime
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Implementation for the [MessageFactory] interface.
+ */
 class MessageFactoryImpl @Inject constructor(dbMapper: DatabaseMapper) : MessageFactory {
 
     private val dbName = "course_app_database"

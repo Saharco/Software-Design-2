@@ -59,11 +59,14 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
 
     fun removeListener(token: String, callback: ListenerCallback): CompletableFuture<Unit> {
         return tokenToUser(token)
-                .thenApply {
-                    if (messageListeners[token] == null || !messageListeners[token]!!.contains(callback))
+                .thenApply { tokenUsername ->
+                    if (messageListeners[tokenUsername] == null || !messageListeners[tokenUsername]!!.contains(callback))
                         throw NoSuchEntityException("given callback is not registered ")
-                    else
-                        messageListeners[token]!!.remove(callback)
+                    else {
+                        messageListeners[tokenUsername]!!.remove(callback)
+                        if (messageListeners[tokenUsername]?.size == 0)
+                            messageListeners.remove(tokenUsername)
+                    }
                 }.thenApply { }
     }
 
@@ -207,7 +210,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     /**
-     * Invokes the callback for all broadcast, channel & private messages that the user *hasn't read*
+     * Invokes the callback for all broadcast, channel (that the user is member of) & private messages that the user *hasn't read*
      */
     private fun tryReadingPendingMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Unit> {
@@ -225,7 +228,6 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                             }
                 }
     }
-
 
     private fun tryReadingListOfMessages(username: String, callback: ListenerCallback,
                                          msgsListDoc: DocumentReference): CompletableFuture<Long> {
@@ -392,25 +394,44 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 .readList("channels")
                 .thenApply { it ?: listOf() }
                 .thenCompose { userChannels ->
-                    invokeUserCallbacksAux(userCallbacks, userChannels, username, message)
+                    usersRoot.document(username)
+                            .read("last_message_read")
+                            .thenApply { it?.toLong() ?: 0 }
+                            .thenCompose { lastReadId ->
+                                invokeUserCallbacksAux(userCallbacks, userChannels, username, message, lastReadId)
+                                        .thenCompose { maxReadMessageId ->
+                                            if (maxReadMessageId > lastReadId) {
+                                                usersRoot.document(username)
+                                                        .set(Pair("last_message_read", maxReadMessageId.toString()))
+                                                        .update()
+                                            } else {
+                                                CompletableFuture.completedFuture(Unit)
+                                            }
+                                        }
+                            }
                 }.thenCompose {
                     tryDeleteMessage(username, message)
                 }
     }
-
+    
     private fun invokeUserCallbacksAux(userCallbacks: List<ListenerCallback>, userChannels: List<String>,
-                                       username: String, message: MessageImpl,
-                                       index: Int = 0): CompletableFuture<Unit> {
+                                       username: String, message: MessageImpl, lastReadId: Long,
+                                       index: Int = 0, maxReadMessageId: Long = 0): CompletableFuture<Long> {
         if (userCallbacks.size <= index)
-            return CompletableFuture.completedFuture(Unit)
+            return CompletableFuture.completedFuture(maxReadMessageId)
         if (message.sender!![0] == '#') {
             val channelName = message.sender!!.substringBefore('@')
             if (!userChannels.contains(channelName))
-                return CompletableFuture.completedFuture(Unit)
+                return CompletableFuture.completedFuture(maxReadMessageId)
         }
+
+        if (message.id <= lastReadId)
+            return invokeUserCallbacksAux(userCallbacks, userChannels, username, message, lastReadId, index + 1)
+
         return userCallbacks[index](message.sender!!, message)
                 .thenCompose {
-                    invokeUserCallbacksAux(userCallbacks, userChannels, username, message, index + 1)
+                    invokeUserCallbacksAux(
+                            userCallbacks, userChannels, username, message, lastReadId, index + 1, message.id)
                 }
 
     }

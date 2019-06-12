@@ -345,6 +345,21 @@ class CourseAppMessagesTest {
         assertEquals(1, statistics.channelMessages().join())
     }
 
+
+    @Test
+    internal fun `trying to send a private message to a user that does not exist should throw NoSuchEntityException`() {
+        assertThrows<NoSuchEntityException> {
+            app.login("admin", "a very strong password")
+                    .thenCompose { adminToken ->
+                        messageFactory.create(MediaType.TEXT, "Bad Message".toByteArray())
+                                .thenCompose { message ->
+                                    app.privateSend(adminToken, "Sahar", message)
+                                }
+
+                    }.joinException()
+        }
+    }
+
     @Test
     internal fun `trying to send a message to a channel that does not exist should throw NoSuchEntityException`() {
         assertThrows<NoSuchEntityException> {
@@ -509,5 +524,114 @@ class CourseAppMessagesTest {
         app.addListener(nonAdminToken, listener).join()
 
         verify { listener wasNot called }
+    }
+
+    @Test
+    internal fun `multiple listeners for the same user are properly invoked`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val listener2 = mockk<ListenerCallback>()
+        every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val (adminToken, message) = app.login("Admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, nonAdminToken) ->
+                    app.addListener(nonAdminToken, listener1)
+                            .thenApply { Pair(adminToken, nonAdminToken) }
+                }.thenCompose { (adminToken, nonAdminToken) ->
+                    app.addListener(nonAdminToken, listener2)
+                            .thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    messageFactory.create(MediaType.STICKER, "Smiley".toByteArray())
+                            .thenApply { Pair(adminToken, it) }
+                }.join()
+
+        verify {
+            listener1 wasNot called
+            listener2 wasNot called
+        }
+
+        assertEquals(0, statistics.pendingMessages().join())
+        app.privateSend(adminToken, "Sahar", message).join()
+        assertEquals(0, statistics.pendingMessages().join())
+
+        verify {
+            listener1(match { it == "@Admin" },
+                    match { it.contents contentEquals "Smiley".toByteArray() })
+        }
+
+        verify {
+            listener2(match { it == "@Admin" },
+                    match { it.contents contentEquals "Smiley".toByteArray() })
+        }
+    }
+
+    @Test
+    internal fun `if a listener is removed and then a message is sent - the callback should not be invoked`() {
+        val listener = mockk<ListenerCallback>()
+        every { listener(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val (adminToken, nonAdminToken, message) = app.login("Admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, nonAdminToken) ->
+                    app.addListener(nonAdminToken, listener)
+                            .thenApply { Pair(adminToken, nonAdminToken) }
+                }.thenCompose { (adminToken, nonAdminToken) ->
+                    messageFactory.create(MediaType.STICKER, "Smiley".toByteArray())
+                            .thenApply { Triple(adminToken, nonAdminToken, it) }
+                }.join()
+
+        verify { listener wasNot called }
+        app.removeListener(nonAdminToken, listener)
+        assertEquals(0, statistics.pendingMessages().join())
+        app.privateSend(adminToken, "Sahar", message).join()
+
+        assertEquals(1, statistics.pendingMessages().join())
+    }
+
+    @Test
+    internal fun `a listener is only invoked once for the same message - even if the message is still pending`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val adminToken = app.login("Admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Alon", "*******")
+                            .thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    app.addListener(adminToken, listener1)
+                            .thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    messageFactory.create(MediaType.STICKER, "Smiley".toByteArray())
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, message) ->
+                    app.broadcast(adminToken, message)
+                            .thenApply { adminToken }
+                }.join()
+
+        verify(exactly = 1) { listener1(any(), any()) }
+
+        val listener2 = mockk<ListenerCallback>()
+        every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        app.addListener(adminToken, listener2).join()
+
+        verify(exactly = 1) { listener1(any(), any()) }
+        verify { listener2 wasNot called }
+
+        messageFactory.create(MediaType.LOCATION, "Africa".toByteArray()).thenCompose { anotherMessage ->
+            app.broadcast(adminToken, anotherMessage)
+        }.join()
+
+        verify(exactly = 2) { listener1(any(), any()) }
+        verify(exactly = 1) { listener2(any(), any()) }
     }
 }

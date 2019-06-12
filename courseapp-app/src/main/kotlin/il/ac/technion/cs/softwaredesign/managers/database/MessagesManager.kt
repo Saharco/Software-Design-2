@@ -365,6 +365,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                     username, msgsDoc, callback, msgsList, lastIdRead, index + 1, currentMax)
 
         // user should read this message
+        msgsList[index].received = LocalDateTime.now()
         return callback(msgsList[index].sender!!, msgsList[index])
                 .thenApply { msgsList[index].usersCount -= 1 }
                 .thenCompose {

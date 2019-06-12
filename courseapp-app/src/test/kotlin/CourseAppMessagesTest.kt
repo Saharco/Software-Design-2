@@ -14,6 +14,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.time.LocalDateTime
 import java.util.concurrent.CompletableFuture
 
 class CourseAppMessagesTest {
@@ -631,5 +632,73 @@ class CourseAppMessagesTest {
 
         verify(exactly = 2) { listener1(any(), any()) }
         verify(exactly = 1) { listener2(any(), any()) }
+    }
+
+    @Test
+    internal fun `receive time of a message is updated when a user reads it`() {
+        val listener = mockk<ListenerCallback>()
+        every { listener(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        app.login("Admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, nonAdminToken) ->
+                    app.addListener(nonAdminToken, listener)
+                            .thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    messageFactory.create(MediaType.STICKER, "Smiley".toByteArray())
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, message) ->
+                    app.privateSend(adminToken, "Sahar", message)
+                }.join()
+
+        verify {
+            listener(match { it == "@Admin" },
+                    match { it.received != null })
+        }
+    }
+
+    @Test
+    internal fun `two users who fetched the same message at different times will have different receive times`() {
+        val listener1 = mockk<ListenerCallback>()
+        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val listener2 = mockk<ListenerCallback>()
+        every { listener2(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val beforeFirstListener = LocalDateTime.now()
+
+        val adminToken = app.login("Admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("Sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, nonAdminToken) ->
+                    app.addListener(nonAdminToken, listener1)
+                            .thenApply { adminToken }
+                }.thenCompose { adminToken ->
+                    messageFactory.create(MediaType.STICKER, "Smiley".toByteArray())
+                            .thenApply { Pair(adminToken, it) }
+                }.thenCompose { (adminToken, message) ->
+                    app.broadcast(adminToken, message)
+                            .thenApply { adminToken }
+                }.join()
+
+        // sleep for a short while and then attach a listener for another user
+        Thread.sleep(200)
+
+        val afterFirstListener = LocalDateTime.now()
+
+        app.addListener(adminToken, listener2).join()
+
+        verify {
+            listener1(match { it == "BROADCAST" },
+                    match { it.received!! > beforeFirstListener && it.received!! < afterFirstListener })
+        }
+
+        verify {
+            listener2(match { it == "BROADCAST" },
+                    match { it.received!! > afterFirstListener })
+        }
     }
 }

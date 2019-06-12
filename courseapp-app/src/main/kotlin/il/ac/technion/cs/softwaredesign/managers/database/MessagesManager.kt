@@ -300,15 +300,15 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
-    /**
-     * Invokes the callback for all private messages that the user *hasn't read*
-     */
     private fun tryReadingBroadcastMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
         val msgsDocument = messagesRoot.document("broadcast_messages")
         return tryReadingListOfMessages(username, callback, msgsDocument)
     }
 
+    /**
+     * Invokes all the registered callbacks that belong to a user who is a member of [channel] on a channel message
+     */
     private fun invokeChannelCallbacks(channel: String, users: List<String>, message: MessageImpl, index: Int = 0)
             : CompletableFuture<Unit> {
         if (users.size <= index)
@@ -325,6 +325,9 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Invokes all of the registered callbacks on a broadcast message
+     */
     private fun invokeBroadcastCallbacks(users: List<String>, message: MessageImpl, index: Int = 0)
             : CompletableFuture<Unit> {
         if (users.size <= index)
@@ -335,6 +338,12 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Attempts to delete a message. A message should be deleted if it's done pending and is not a channel message
+     *
+     * @param username: last username who read the message
+     * @param message: message that will potentially be deleted
+     */
     private fun tryDeleteMessage(username: String, message: MessageImpl): CompletableFuture<Unit> {
         if (!message.isDonePending() || message.sender!![0] == '#') {
             return CompletableFuture.completedFuture(Unit)
@@ -359,33 +368,56 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * @param msgsList: list of messages
+     * @param msgId: id of some message
+     * @return [msgsList] without the message of id [msgId]
+     */
     private fun removeMessageById(msgsList: MutableList<MessageImpl>, msgId: Long): MutableList<MessageImpl> {
         return msgsList.asSequence()
                 .filter { it.id != msgId }
                 .toMutableList()
     }
 
+    /**
+     * Invokes all of [username]'s callbacks on [message], so long as that message is not a channel message that the user should not invoke
+     */
     private fun invokeUserCallbacks(username: String, message: MessageImpl): CompletableFuture<Unit> {
         val userCallbacks = messageListeners[username]
         if (userCallbacks == null || userCallbacks.isEmpty())
             return CompletableFuture.completedFuture(Unit)
         message.received = LocalDateTime.now()
         message.usersCount -= 1
-        return invokeUserCallbacksAux(userCallbacks, username, message)
-                .thenCompose {
+        return usersRoot.document(username)
+                .readList("channels")
+                .thenApply { it ?: listOf() }
+                .thenCompose { userChannels ->
+                    invokeUserCallbacksAux(userCallbacks, userChannels, username, message)
+                }.thenCompose {
                     tryDeleteMessage(username, message)
                 }
     }
 
-    private fun invokeUserCallbacksAux(userCallbacks: List<ListenerCallback>, username: String, message: MessageImpl,
+    private fun invokeUserCallbacksAux(userCallbacks: List<ListenerCallback>, userChannels: List<String>,
+                                       username: String, message: MessageImpl,
                                        index: Int = 0): CompletableFuture<Unit> {
         if (userCallbacks.size <= index)
             return CompletableFuture.completedFuture(Unit)
+        if (message.sender!![0] == '#') {
+            val channelName = message.sender!!.substringBefore('@')
+            if (!userChannels.contains(channelName))
+                return CompletableFuture.completedFuture(Unit)
+        }
         return userCallbacks[index](message.sender!!, message)
-                .thenCompose { invokeUserCallbacksAux(userCallbacks, username, message, index + 1) }
+                .thenCompose {
+                    invokeUserCallbacksAux(userCallbacks, userChannels, username, message, index + 1)
+                }
 
     }
 
+    /**
+     * Uploads a message to the database: concat to list & update counters
+     */
     private fun uploadMessage(messageToSend: MessageImpl, messageDoc: DocumentReference): CompletableFuture<Unit> {
         return messageDoc.readList("messages")
                 .thenApply {
@@ -400,6 +432,9 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Updates the appropriate messages' counter by [change]
+     */
     private fun updateMessagesCount(sender: String, change: Int = 1): CompletableFuture<Unit> {
         if (sender[0] == '#' && change == 1)
         // channel send
@@ -426,7 +461,10 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 ?.toMutableList() ?: mutableListOf()
     }
 
-
+    /**
+     * @param msgsList: list of messages
+     * @return list of messages that were serialized from [msgsList]
+     */
     private fun serializeMessagesList(msgsList: MutableList<MessageImpl>): MutableList<String> {
         return msgsList.asSequence()
                 .map { it.serialize() }

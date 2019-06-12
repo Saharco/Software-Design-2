@@ -12,10 +12,16 @@ import java.util.concurrent.CompletableFuture
 class DatabaseMapper(private val dbMap: Map<String, CompletableFuture<Database>>,
                      private val storageMap: Map<String, CompletableFuture<CachedStorage>>) {
 
+    /**
+     * @return the Database instance that [dbName] is being mapped to
+     */
     fun getDatabase(dbName: String): Database {
         return dbMap.getValue(dbName).get()
     }
 
+    /**
+     * @return the CachedStorage instance that [storageName] is being mapped to
+     */
     fun getStorage(storageName: String): CachedStorage {
         return storageMap.getValue(storageName).get()
     }

@@ -1,5 +1,6 @@
 plugins {
     application
+    id("org.jetbrains.dokka") version "0.9.18"
 }
 
 application {
@@ -20,7 +21,6 @@ val kotsonVersion: String? by extra
 val kotlinLoggerVersion: String? by extra
 val kotlinLoggerImplVersion: String? by extra
 
-
 dependencies {
     compile(project(":library"))
     compile("com.google.inject", "guice", guiceVersion)
@@ -38,4 +38,9 @@ dependencies {
     compile ("org.slf4j:slf4j-simple:$kotlinLoggerImplVersion")
 
     testRuntime("org.junit.jupiter", "junit-jupiter-engine", junitVersion)
+}
+
+tasks.dokka {
+    outputFormat = "html"
+//    outputDirectory = "build/javadoc"
 }

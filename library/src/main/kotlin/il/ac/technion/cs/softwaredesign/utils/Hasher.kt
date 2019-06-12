@@ -3,10 +3,14 @@ package il.ac.technion.cs.softwaredesign.utils
 import java.security.MessageDigest
 
 /**
- *  Wrapper class for decrypting messages.
- *  Decryption is one-way, using the SHA-256 algorithm
+ *  Wrapper class for encrypting messages.
+ *  Encryption is one-way, using the SHA-256 algorithm
  */
 class Hasher {
+    /**
+     * @param message: message to encrypt
+     * @return SHA-256 encryption of [message]
+     */
     fun hash(message: String): String {
         val bytes = message.toByteArray()
         val md = MessageDigest.getInstance("SHA-256")
@@ -15,7 +19,7 @@ class Hasher {
     }
 
     /**
-     * calls the [hash] method to encrypt a message
+     * Calls the [hash] method to encrypt [message]
      */
     operator fun invoke(message: String): String {
         return hash(message)

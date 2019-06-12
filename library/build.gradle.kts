@@ -1,3 +1,7 @@
+plugins {
+    id("org.jetbrains.dokka") version "0.9.18"
+}
+
 val junitVersion: String? by extra
 val hamkrestVersion: String? by extra
 
@@ -15,6 +19,7 @@ val kotlinListenableFuturesVersion: String? by extra
 val kotlinLoggerVersion: String? by extra
 val kotlinLoggerImplVersion: String? by extra
 
+val dokkaVersion: String? by extra
 
 dependencies {
     compile("il.ac.technion.cs.softwaredesign", "primitive-storage-layer", "1.2")
@@ -36,4 +41,9 @@ dependencies {
     compile ("org.slf4j:slf4j-simple:$kotlinLoggerImplVersion")
 
     runtime("org.junit.jupiter:junit-jupiter-engine:$junitVersion")
+}
+
+tasks.dokka {
+    outputFormat = "html"
+//    outputDirectory = "build/javadoc"
 }

@@ -6,7 +6,9 @@ import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.io.Serializable
 
-
+/**
+ * (De)serializes an object
+ */
 object ObjectSerializer {
     /**
      * Serialize given object of generic type [T] into [String]

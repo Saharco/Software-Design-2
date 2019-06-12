@@ -25,6 +25,7 @@ allprojects {
         set("kotlinListenableFuturesVersion", "1.2.0")
         set("kotlinLoggerVersion", "1.6.24")
         set("kotlinLoggerImplVersion", "1.6.1")
+        set("dokkaVersion", "0.9.18")
     }
 }
 
@@ -36,8 +37,11 @@ dependencies {
 subprojects {
     apply(plugin = "kotlin")
     dependencies {
+        val dokkaVersion: String? by extra
+
         implementation(kotlin("stdlib-jdk8"))
         compile(kotlin("reflect"))
+        compile("org.jetbrains.dokka:dokka-android-gradle-plugin:$dokkaVersion")
     }
     tasks.withType<KotlinCompile> {
         kotlinOptions.jvmTarget = "1.8"

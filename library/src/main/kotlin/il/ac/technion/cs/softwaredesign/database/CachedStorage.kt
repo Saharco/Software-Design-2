@@ -4,7 +4,7 @@ import il.ac.technion.cs.softwaredesign.database.datastructures.LimitedCacheMap
 import il.ac.technion.cs.softwaredesign.storage.SecureStorage
 import java.util.concurrent.CompletableFuture
 
-class CachedStorage(private val storage: SecureStorage, limit: Int = 10000): SecureStorage {
+class CachedStorage(private val storage: SecureStorage, limit: Int = 18000): SecureStorage {
 
     private val cache = LimitedCacheMap<String, ByteArray?>(limit)
 

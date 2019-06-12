@@ -1,23 +1,31 @@
+import il.ac.technion.cs.softwaredesign.database.CachedStorage
 import il.ac.technion.cs.softwaredesign.mocks.SecureStorageMock
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
 
 var charset = Charsets.UTF_8
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AVLTreeTest {
+
+    lateinit var tree: AVLTree
+
+    @BeforeAll
+    internal fun `initialize tree`() {
+        val storage = CachedStorage(SecureStorageMock())
+        tree = AVLTree(storage)
+    }
 
     @Test
     internal fun `inserting one element and reading it`() {
-        val storage = SecureStorageMock()
-        val tree = AVLTree(storage)
         tree.insert("1000000/2019".toByteArray(charset), "".toByteArray(charset))
         assertTrue("".toByteArray(charset).contentEquals(tree.search("1000000/2019".toByteArray(charset))!!))
     }
 
     @Test
     internal fun `inserting multiple elements and reading them`() {
-        val storage = SecureStorageMock()
-        val tree = AVLTree(storage)
         for (i in 0..100) {
             tree.insert(("100000$i/2019").toByteArray(charset), "$i".toByteArray(charset))
         }
@@ -28,16 +36,12 @@ class AVLTreeTest {
 
     @Test
     internal fun `inserting one element and deleting it`() {
-        val storage = SecureStorageMock()
-        val tree = AVLTree(storage)
         tree.insert("1000000/2019".toByteArray(charset), "".toByteArray(charset))
         tree.delete("1000000/2019".toByteArray(charset))
     }
 
     @Test
     internal fun `inserting multiple elements and deleting them`() {
-        val storage = SecureStorageMock()
-        val tree = AVLTree(storage)
         val list: MutableList<Int> = (0..200).toMutableList()
         list.shuffle()
         for (i in list) {
@@ -52,9 +56,7 @@ class AVLTreeTest {
 
     @Test
     internal fun `inserting and deleting one by one`() {
-        val storage = SecureStorageMock()
-        val tree = AVLTree(storage)
-        val list: MutableList<Int> = (0..10000).toMutableList()
+        val list: MutableList<Int> = (0..100).toMutableList()
         list.shuffle()
         for (i in list) {
             tree.insert(("$i/2019").toByteArray(charset), "$i".toByteArray(charset))
@@ -66,8 +68,6 @@ class AVLTreeTest {
 
     @Test
     internal fun `top k test`() {
-        val storage = SecureStorageMock()
-        val tree = AVLTree(storage)
         for (i in 0..9) {
             tree.insert(("$i/2019").toByteArray(charset), "$i".toByteArray(charset))
         }

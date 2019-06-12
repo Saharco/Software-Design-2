@@ -4,6 +4,8 @@ import il.ac.technion.cs.softwaredesign.CourseApp
 import il.ac.technion.cs.softwaredesign.CourseAppInitializer
 import il.ac.technion.cs.softwaredesign.CourseAppModule
 import il.ac.technion.cs.softwaredesign.CourseAppStatistics
+import il.ac.technion.cs.softwaredesign.messages.MediaType
+import il.ac.technion.cs.softwaredesign.messages.MessageFactory
 import il.ac.technion.cs.softwaredesign.storage.SecureStorageModule
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
@@ -11,13 +13,13 @@ import org.junit.jupiter.api.Assertions.*
 class CourseAppStatisticsTest {
     private val injector = Guice.createInjector(CourseAppModule(), SecureStorageModule())
     private val courseAppInitializer = injector.getInstance<CourseAppInitializer>()
+    private val messageFactory = injector.getInstance<MessageFactory>()
+    private val app = injector.getInstance<CourseApp>()
+    private val statistics = injector.getInstance<CourseAppStatistics>()
 
     init {
         courseAppInitializer.setup().join()
     }
-
-    private val app = injector.getInstance<CourseApp>()
-    private val statistics = injector.getInstance<CourseAppStatistics>()
 
     @Test
     internal fun `can query total users when no users exist yet`() {
@@ -153,6 +155,38 @@ class CourseAppStatisticsTest {
 
     @Test
     internal fun `top 10 channels by messages does secondary sort by creation time`() {
+        val adminToken = app.login("alon", "******").join()
+        app.channelJoin(adminToken, "#channel1").thenCompose {
+            app.channelJoin(adminToken, "#channel2")
+        }.thenCompose {
+            app.channelJoin(adminToken, "#channel3")
+        }.join()
 
+        messageFactory.create(MediaType.PICTURE, "Fish.jpg".toByteArray())
+                .thenCompose { message ->
+                    app.channelSend(adminToken, "#channel3", message)
+                }.join()
+
+        messageFactory.create(MediaType.PICTURE, "Fish(2).jpg".toByteArray())
+                .thenCompose { message ->
+                    app.channelSend(adminToken, "#channel3", message)
+                }.join()
+
+        messageFactory.create(MediaType.PICTURE, "Fish(3).jpg".toByteArray())
+                .thenCompose { message ->
+                    app.channelSend(adminToken, "#channel2", message)
+                }.join()
+
+        messageFactory.create(MediaType.PICTURE, "Fish(4).jpg".toByteArray())
+                .thenCompose { message ->
+                    app.channelSend(adminToken, "#channel1", message)
+                }.join()
+
+        messageFactory.create(MediaType.PICTURE, "Fish(5).jpg".toByteArray())
+                .thenCompose { message ->
+                    app.channelSend(adminToken, "#channel1", message)
+                }.join()
+
+        assertEquals(listOf("#channel1", "#channel3", "#channel2"), statistics.top10ChannelsByMessages().join())
     }
 }

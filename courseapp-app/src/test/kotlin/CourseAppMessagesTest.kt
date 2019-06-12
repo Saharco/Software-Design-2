@@ -7,6 +7,7 @@ import il.ac.technion.cs.softwaredesign.exceptions.UserNotAuthorizedException
 import il.ac.technion.cs.softwaredesign.messages.MediaType
 import il.ac.technion.cs.softwaredesign.messages.MessageFactory
 import il.ac.technion.cs.softwaredesign.storage.SecureStorageModule
+import io.mockk.called
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -323,13 +324,13 @@ class CourseAppMessagesTest {
 
     @Test
     internal fun `channel message is never removed`() {
-        val listener1 = mockk<ListenerCallback>()
-        every { listener1(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+        val listener = mockk<ListenerCallback>()
+        every { listener(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
 
         assertEquals(0, statistics.channelMessages().join())
         app.login("admin", "a very strong password")
                 .thenCompose { adminToken ->
-                    app.addListener(adminToken, listener1)
+                    app.addListener(adminToken, listener)
                             .thenCompose {
                                 app.channelJoin(adminToken, "#TakeCare")
                                         .thenCompose {
@@ -486,5 +487,27 @@ class CourseAppMessagesTest {
         assertThrows<UserNotAuthorizedException> {
             app.fetchMessage(nonAdminToken, messageId).joinException()
         }
+    }
+
+    @Test
+    internal fun `user listener is not invoked for messages in channels that the user is not a member of`() {
+        val listener = mockk<ListenerCallback>()
+        every { listener(any(), any()) }.returns(CompletableFuture.completedFuture(Unit))
+
+        val (adminToken, nonAdminToken) = app.login("admin", "a very strong password")
+                .thenCompose { adminToken ->
+                    app.login("sahar", "a very weak password")
+                            .thenApply { Pair(adminToken, it) }
+                }.join()
+        app.channelJoin(adminToken, "#TakeCare").join()
+        messageFactory.create(MediaType.TEXT, "Hello Sus".toByteArray())
+                .thenCompose { app.channelSend(adminToken, "#TakeCare", it) }.join()
+        // message is sent to channel
+
+        assertEquals(1, statistics.channelMessages().join())
+        // attach user listener
+        app.addListener(nonAdminToken, listener).join()
+
+        verify { listener wasNot called }
     }
 }

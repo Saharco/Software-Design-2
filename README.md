@@ -92,7 +92,7 @@ The following components were thoroughly tested:
 * **CourseAppStatistics**: tested in CourseAppStatisticsTest. The "top 10" methods' correctness is tested via extensive load testing, and utilizes classes, methods & extension methods provided by utils.kt.
 * **AVLTree**: tested in AVLTreeTest.
 
-In total, there are over 100 tests that span nearly 100% code coverage across all the classes we've implemented!!
+In total, there are nearly 100 tests that span almost 100% code coverage across all the classes we've implemented. The managers in particular (which provide the functionality of CourseApp) stand at 100% code coverage.
 
 The tests utilize the *SecureStorageFactoryMock* and *SecureStorageMock* classes to mock the missing behavior of the remote storage (along with its slow read operations). GUice is used to provide the constructor parameter (database mapper) for CourseApp and CourseAppInitializer, and bind the interfaces to the implementations we wrote.
 

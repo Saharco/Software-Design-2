@@ -45,5 +45,5 @@ dependencies {
 
 tasks.dokka {
     outputFormat = "html"
-//    outputDirectory = "build/javadoc"
+    outputDirectory = "build/javadoc"
 }

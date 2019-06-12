@@ -15,7 +15,6 @@ import java.util.concurrent.CompletableFuture
 /**
  * Manages users in a database: this class wraps authentication functionality.
  * Provides common database operations regarding users and login session tokens
- *
  * @see CourseAppImpl
  * @see Database
  *

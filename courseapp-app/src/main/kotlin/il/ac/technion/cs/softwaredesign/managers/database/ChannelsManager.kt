@@ -15,7 +15,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Manages channels in the app: this class wraps channels functionality
- *
  * @see CourseAppImpl
  * @see Database
  *

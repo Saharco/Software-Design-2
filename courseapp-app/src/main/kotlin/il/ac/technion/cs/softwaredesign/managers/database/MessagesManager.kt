@@ -1,5 +1,6 @@
 package il.ac.technion.cs.softwaredesign.managers.database
 
+import il.ac.technion.cs.softwaredesign.CourseApp
 import il.ac.technion.cs.softwaredesign.CourseAppImpl
 import il.ac.technion.cs.softwaredesign.ListenerCallback
 import il.ac.technion.cs.softwaredesign.database.Database
@@ -17,7 +18,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Manages messages in the app: this class wraps messaging functionality
- *
  * @see CourseAppImpl
  * @see Database
  *
@@ -278,16 +278,37 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Total number of pending messages, i.e. messages that are waiting for a user to read them, not including channel
+     * messages.
+     *
+     * @return The number of pending messages.
+     */
     fun getPendingMessages(): CompletableFuture<Long> {
         return messagesMetadataRoot.read("pending_messages_count")
                 .thenApply { it?.toLong() ?: 0 }
     }
 
+    /**
+     * Total number of channel messages, i.e., messages that can be fetched using [CourseApp.fetchMessage].
+     *
+     * @return The number of messages in channels.
+     */
     fun getChannelMessages(): CompletableFuture<Long> {
         return messagesMetadataRoot.read("channels_pending_messages_count")
                 .thenApply { it?.toLong() ?: 0 }
     }
 
+    /**
+     * Return a sorted list of the top [k] channels in the system by message volume. The list will be sorted in
+     * descending order.
+     *
+     * If two channels have the exact same number of messages, they will be sorted in ascending appearance order.
+     *
+     * If there are less than [k] channels in the system, a shorter list will be returned.
+     *
+     * @return A sorted list of channels by message count.
+     */
     fun topKChannelsByMessages(k: Int = 10): CompletableFuture<List<String>> {
         return CompletableFuture.completedFuture(treeTopK(channelsByMessagesStorage, k))
     }
@@ -312,6 +333,10 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Tries to invoke a user's callback on all messages in a given messages document (= has a field named "message")
+     * User's callback will only be invoked if the message is pending *for the user* and hasn't been read yet
+     */
     private fun tryReadingListOfMessages(username: String, callback: ListenerCallback,
                                          msgsListDoc: DocumentReference): CompletableFuture<Long> {
         return msgsListDoc.readList("messages")
@@ -352,7 +377,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     /**
-     * Invokes the callback for all broadcast messages that the user *hasn't read*
+     * Invokes the callback for all private messages sent to [username] that the [username] *hasn't read*
      */
     private fun tryReadingPrivateMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
@@ -361,7 +386,7 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
     }
 
     /**
-     * Invokes the callback for all channel messages that the user *hasn't read*
+     * Invokes the callback for all channel messages that [username] *hasn't read*
      */
     private fun tryReadingChannelMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
@@ -385,6 +410,9 @@ class MessagesManager(private val dbMapper: DatabaseMapper) {
                 }
     }
 
+    /**
+     * Invokes the callback for all broadcast messages that [username] *hasn't read*
+     */
     private fun tryReadingBroadcastMessages(username: String, callback: ListenerCallback)
             : CompletableFuture<Long> {
         val msgsDocument = messagesRoot.document("broadcast_messages")
